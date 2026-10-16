@@ -9,6 +9,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { Room } from './room.entity.js';
@@ -122,15 +123,15 @@ export class Homestay {
   // Quan hệ 1 Chủ nhà sở hữu Nhiều Homestay
   @ManyToOne(() => User, (user) => user.homestays, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'host_id' })
-  host: User | null;
+  host: Relation<User | null>;
 
   @OneToMany(() => Room, (room) => room.homestay, { cascade: true })
-  rooms: Room[];
+  rooms: Relation<Room[]>;
 
   @OneToMany(() => Review, (review) => review.homestay)
-  reviews: Review[];
+  reviews: Relation<Review[]>;
 
   // AI Service: Tóm tắt đánh giá và biểu đồ Radar ABSA
   @OneToOne(() => ReviewAbsaMetric, (absa) => absa.homestay, { cascade: true })
-  absa_metric: ReviewAbsaMetric;
+  absa_metric: Relation<ReviewAbsaMetric>;
 }

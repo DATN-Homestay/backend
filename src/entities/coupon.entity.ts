@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 
@@ -79,5 +80,5 @@ export class Coupon {
 
   @ManyToOne(() => User, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'host_id' })
-  host: User | null;
+  host: Relation<User | null>;
 }

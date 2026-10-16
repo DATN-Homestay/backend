@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { ClaimRequest } from './claim-request.entity.js';
 
@@ -36,5 +37,5 @@ export class VerificationLog {
 
   @ManyToOne(() => ClaimRequest, (req) => req.logs, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'claim_request_id' })
-  claim_request: ClaimRequest;
+  claim_request: Relation<ClaimRequest>;
 }

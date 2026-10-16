@@ -8,6 +8,7 @@ import {
   JoinColumn,
   Index,
   Unique,
+  type Relation,
 } from 'typeorm';
 import { Room } from './room.entity.js';
 
@@ -80,5 +81,5 @@ export class PriceCalendar {
 
   @ManyToOne(() => Room, (room) => room.price_calendars, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'room_id' })
-  room: Room;
+  room: Relation<Room>;
 }

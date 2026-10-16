@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToMany,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 
@@ -28,5 +29,5 @@ export class Role {
   description: string | null;
 
   @ManyToMany(() => User, (user) => user.roles)
-  users: User[];
+  users: Relation<User[]>;
 }

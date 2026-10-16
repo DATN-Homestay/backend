@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Booking } from './booking.entity.js';
 
@@ -49,5 +50,5 @@ export class PaymentTransaction {
 
   @ManyToOne(() => Booking, (booking) => booking.payments, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'booking_id' })
-  booking: Booking;
+  booking: Relation<Booking>;
 }

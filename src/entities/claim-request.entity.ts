@@ -8,6 +8,7 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { Homestay } from './homestay.entity.js';
@@ -93,12 +94,12 @@ export class ClaimRequest {
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'host_id' })
-  host: User;
+  host: Relation<User>;
 
   @ManyToOne(() => Homestay, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'homestay_id' })
-  homestay: Homestay;
+  homestay: Relation<Homestay>;
 
   @OneToMany(() => VerificationLog, (log) => log.claim_request, { cascade: true })
-  logs: VerificationLog[];
+  logs: Relation<VerificationLog[]>;
 }

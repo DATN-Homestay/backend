@@ -7,6 +7,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Booking } from './booking.entity.js';
 import { User } from './user.entity.js';
@@ -79,13 +80,13 @@ export class Review {
 
   @OneToOne(() => Booking, (booking) => booking.review, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'booking_id' })
-  booking: Booking;
+  booking: Relation<Booking>;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'customer_id' })
-  customer: User;
+  customer: Relation<User>;
 
   @ManyToOne(() => Homestay, (homestay) => homestay.reviews, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'homestay_id' })
-  homestay: Homestay;
+  homestay: Relation<Homestay>;
 }
