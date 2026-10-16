@@ -1,18 +1,99 @@
 import { Module } from '@nestjs/common';
-import { createObserveModule } from '@nestjs/observe';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import * as fs from 'fs';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
+import {
+  User,
+  Role,
+  HostVerificationDocument,
+  Homestay,
+  Room,
+  RoomImage,
+  PriceCalendar,
+  ClaimRequest,
+  VerificationLog,
+  Booking,
+  PaymentTransaction,
+  EscrowHold,
+  RefundTransaction,
+  PayoutRequest,
+  Review,
+  Coupon,
+  Conversation,
+  Message,
+  ReviewAbsaMetric,
+  AiPricingLog,
+  FraudLog,
+} from './entities/index.js';
 
 @Module({
   imports: [
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'backend',
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
+    }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const isSsl = configService.get<string>('DB_SSL', 'false') === 'true';
+        const caPath = configService.get<string>('DB_SSL_CA_PATH');
+
+        let sslOptions: any = undefined;
+        if (isSsl) {
+          if (caPath && fs.existsSync(caPath)) {
+            sslOptions = {
+              rejectUnauthorized: true,
+              ca: fs.readFileSync(caPath).toString(),
+            };
+          } else {
+            sslOptions = {
+              rejectUnauthorized: false,
+            };
+          }
+        }
+
+        return {
+          type: 'mysql',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: parseInt(configService.get<string>('DB_PORT', '3306'), 10),
+          username: configService.get<string>('DB_USERNAME', 'avnadmin'),
+          password: configService.get<string>('DB_PASSWORD', ''),
+          database: configService.get<string>('DB_DATABASE', 'defaultdb'),
+          entities: [
+            User,
+            Role,
+            HostVerificationDocument,
+            Homestay,
+            Room,
+            RoomImage,
+            PriceCalendar,
+            ClaimRequest,
+            VerificationLog,
+            Booking,
+            PaymentTransaction,
+            EscrowHold,
+            RefundTransaction,
+            PayoutRequest,
+            Review,
+            Coupon,
+            Conversation,
+            Message,
+            ReviewAbsaMetric,
+            AiPricingLog,
+            FraudLog,
+          ],
+          synchronize: configService.get<string>('DB_SYNCHRONIZE', 'true') === 'true', // Tự động sinh bảng khi chạy
+          autoLoadEntities: true,
+          logging: configService.get<string>('NODE_ENV') !== 'production',
+          ssl: sslOptions,
+          extra: {
+            connectionLimit: 10,
+          },
+        };
+      },
     }),
   ],
   controllers: [AppController],
