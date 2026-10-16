@@ -1,32 +1,22 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import * as fs from 'fs';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import {
-  User,
-  Role,
-  HostVerificationDocument,
-  Homestay,
-  Room,
-  RoomImage,
-  PriceCalendar,
-  ClaimRequest,
-  VerificationLog,
-  Booking,
-  PaymentTransaction,
-  EscrowHold,
-  RefundTransaction,
-  PayoutRequest,
-  Review,
-  Coupon,
-  Conversation,
-  Message,
-  ReviewAbsaMetric,
-  AiPricingLog,
-  FraudLog,
-} from './entities/index.js';
+import { databaseConfigAsync } from './config/database.config.js';
+
+// Các module chia việc cho 3 thành viên
+import { AuthModule } from './modules/auth/auth.module.js';
+import { UsersModule } from './modules/users/users.module.js';
+import { HomestaysModule } from './modules/homestays/homestays.module.js';
+import { VerificationModule } from './modules/verification/verification.module.js';
+import { BookingsModule } from './modules/bookings/bookings.module.js';
+import { PaymentsModule } from './modules/payments/payments.module.js';
+import { DynamicPricingModule } from './modules/dynamic-pricing/dynamic-pricing.module.js';
+import { ReviewsModule } from './modules/reviews/reviews.module.js';
+import { ChatModule } from './modules/chat/chat.module.js';
+import { CouponsModule } from './modules/coupons/coupons.module.js';
+import { SecurityModule } from './modules/security/security.module.js';
 
 @Module({
   imports: [
@@ -34,67 +24,18 @@ import {
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const isSsl = configService.get<string>('DB_SSL', 'false') === 'true';
-        const caPath = configService.get<string>('DB_SSL_CA_PATH');
-
-        let sslOptions: any = undefined;
-        if (isSsl) {
-          if (caPath && fs.existsSync(caPath)) {
-            sslOptions = {
-              rejectUnauthorized: true,
-              ca: fs.readFileSync(caPath).toString(),
-            };
-          } else {
-            sslOptions = {
-              rejectUnauthorized: false,
-            };
-          }
-        }
-
-        return {
-          type: 'mysql',
-          host: configService.get<string>('DB_HOST', 'localhost'),
-          port: parseInt(configService.get<string>('DB_PORT', '3306'), 10),
-          username: configService.get<string>('DB_USERNAME', 'avnadmin'),
-          password: configService.get<string>('DB_PASSWORD', ''),
-          database: configService.get<string>('DB_DATABASE', 'defaultdb'),
-          entities: [
-            User,
-            Role,
-            HostVerificationDocument,
-            Homestay,
-            Room,
-            RoomImage,
-            PriceCalendar,
-            ClaimRequest,
-            VerificationLog,
-            Booking,
-            PaymentTransaction,
-            EscrowHold,
-            RefundTransaction,
-            PayoutRequest,
-            Review,
-            Coupon,
-            Conversation,
-            Message,
-            ReviewAbsaMetric,
-            AiPricingLog,
-            FraudLog,
-          ],
-          synchronize: configService.get<string>('DB_SYNCHRONIZE', 'true') === 'true', // Tự động sinh bảng khi chạy
-          autoLoadEntities: true,
-          logging: configService.get<string>('NODE_ENV') !== 'production',
-          ssl: sslOptions,
-          extra: {
-            connectionLimit: 10,
-          },
-        };
-      },
-    }),
+    TypeOrmModule.forRootAsync(databaseConfigAsync),
+    AuthModule,
+    UsersModule,
+    HomestaysModule,
+    VerificationModule,
+    BookingsModule,
+    PaymentsModule,
+    DynamicPricingModule,
+    ReviewsModule,
+    ChatModule,
+    CouponsModule,
+    SecurityModule,
   ],
   controllers: [AppController],
   providers: [AppService],
