@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Conversation } from './conversation.entity.js';
 import { User } from './user.entity.js';
@@ -45,9 +46,9 @@ export class Message {
 
   @ManyToOne(() => Conversation, (conv) => conv.messages, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })
-  conversation: Conversation;
+  conversation: Relation<Conversation>;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sender_id' })
-  sender: User;
+  sender: Relation<User>;
 }

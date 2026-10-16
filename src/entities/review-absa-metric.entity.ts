@@ -7,6 +7,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Homestay } from './homestay.entity.js';
 
@@ -104,5 +105,5 @@ export class ReviewAbsaMetric {
 
   @OneToOne(() => Homestay, (homestay) => homestay.absa_metric, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'homestay_id' })
-  homestay: Homestay;
+  homestay: Relation<Homestay>;
 }

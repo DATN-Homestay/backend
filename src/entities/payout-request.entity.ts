@@ -8,6 +8,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { Booking } from './booking.entity.js';
@@ -72,9 +73,9 @@ export class PayoutRequest {
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'host_id' })
-  host: User;
+  host: Relation<User>;
 
   @OneToOne(() => Booking, (booking) => booking.payout, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'booking_id' })
-  booking: Booking;
+  booking: Relation<Booking>;
 }

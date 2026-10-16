@@ -7,6 +7,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 
@@ -64,5 +65,5 @@ export class HostVerificationDocument {
 
   @OneToOne(() => User, (user) => user.verification_document)
   @JoinColumn({ name: 'host_id' })
-  host: User;
+  host: Relation<User>;
 }

@@ -9,6 +9,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { Room } from './room.entity.js';
@@ -81,24 +82,24 @@ export class Booking {
 
   @ManyToOne(() => User, (user) => user.bookings, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'customer_id' })
-  customer: User;
+  customer: Relation<User>;
 
   @ManyToOne(() => Room, (room) => room.bookings, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'room_id' })
-  room: Room;
+  room: Relation<Room>;
 
   @OneToMany(() => PaymentTransaction, (tx) => tx.booking)
-  payments: PaymentTransaction[];
+  payments: Relation<PaymentTransaction[]>;
 
   @OneToOne(() => EscrowHold, (escrow) => escrow.booking)
-  escrow: EscrowHold;
+  escrow: Relation<EscrowHold>;
 
   @OneToMany(() => RefundTransaction, (refund) => refund.booking)
-  refunds: RefundTransaction[];
+  refunds: Relation<RefundTransaction[]>;
 
   @OneToOne(() => PayoutRequest, (payout) => payout.booking)
-  payout: PayoutRequest;
+  payout: Relation<PayoutRequest>;
 
   @OneToOne(() => Review, (review) => review.booking)
-  review: Review;
+  review: Relation<Review>;
 }

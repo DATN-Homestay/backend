@@ -6,6 +6,7 @@ import {
   OneToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Booking } from './booking.entity.js';
 
@@ -48,5 +49,5 @@ export class EscrowHold {
 
   @OneToOne(() => Booking, (booking) => booking.escrow, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'booking_id' })
-  booking: Booking;
+  booking: Relation<Booking>;
 }

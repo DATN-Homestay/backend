@@ -8,6 +8,7 @@ import {
   OneToOne,
   ManyToMany,
   JoinTable,
+  type Relation,
 } from 'typeorm';
 import { Role } from './role.entity.js';
 import { HostVerificationDocument } from './host-verification-document.entity.js';
@@ -59,18 +60,18 @@ export class User {
     joinColumn: { name: 'user_id', referencedColumnName: 'id' },
     inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
   })
-  roles: Role[];
+  roles: Relation<Role[]>;
 
   @OneToOne(
     () => HostVerificationDocument,
     (verification) => verification.host,
     { cascade: true },
   )
-  verification_document: HostVerificationDocument;
+  verification_document: Relation<HostVerificationDocument>;
 
   @OneToMany(() => Homestay, (homestay) => homestay.host)
-  homestays: Homestay[];
+  homestays: Relation<Homestay[]>;
 
   @OneToMany(() => Booking, (booking) => booking.customer)
-  bookings: Booking[];
+  bookings: Relation<Booking[]>;
 }

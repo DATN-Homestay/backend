@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Room } from './room.entity.js';
 
@@ -93,5 +94,5 @@ export class AiPricingLog {
 
   @ManyToOne(() => Room, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'room_id' })
-  room: Room;
+  room: Relation<Room>;
 }

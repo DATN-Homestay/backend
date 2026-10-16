@@ -7,6 +7,7 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { Homestay } from './homestay.entity.js';
@@ -41,16 +42,16 @@ export class Conversation {
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'customer_id' })
-  customer: User;
+  customer: Relation<User>;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'host_id' })
-  host: User;
+  host: Relation<User>;
 
   @ManyToOne(() => Homestay, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'homestay_id' })
-  homestay: Homestay;
+  homestay: Relation<Homestay>;
 
   @OneToMany(() => Message, (message) => message.conversation, { cascade: true })
-  messages: Message[];
+  messages: Relation<Message[]>;
 }

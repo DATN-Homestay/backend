@@ -8,6 +8,7 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  type Relation,
 } from 'typeorm';
 import { Homestay } from './homestay.entity.js';
 import { PriceCalendar } from './price-calendar.entity.js';
@@ -41,17 +42,17 @@ export class Room {
 
   @ManyToOne(() => Homestay, (homestay) => homestay.rooms, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'homestay_id' })
-  homestay: Homestay;
+  homestay: Relation<Homestay>;
 
   @OneToMany(() => PriceCalendar, (calendar) => calendar.room, { cascade: true })
-  price_calendars: PriceCalendar[];
+  price_calendars: Relation<PriceCalendar[]>;
 
   @OneToMany(() => RoomImage, (image) => image.room, { cascade: true })
-  images: RoomImage[];
+  images: Relation<RoomImage[]>;
 
   @OneToMany(() => Booking, (booking) => booking.room)
-  bookings: Booking[];
+  bookings: Relation<Booking[]>;
 
   @OneToMany(() => AiPricingLog, (log) => log.room)
-  ai_pricing_logs: AiPricingLog[];
+  ai_pricing_logs: Relation<AiPricingLog[]>;
 }
