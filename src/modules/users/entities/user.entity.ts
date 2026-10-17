@@ -48,6 +48,21 @@ export class User {
   })
   status: UserStatus;
 
+  @Column({
+    type: 'int',
+    unsigned: true,
+    default: 0,
+    comment: 'Số lần đăng nhập sai liên tiếp (khóa tạm khi đủ 5 lần)',
+  })
+  failed_login_count: number;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    comment: 'Khóa đăng nhập tạm thời đến thời điểm này',
+  })
+  locked_until: Date | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 

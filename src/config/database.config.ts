@@ -2,6 +2,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import * as fs from 'fs';
 import { User, Role } from '../modules/users/entities/index.js';
+import { UserSession } from '../modules/auth/entities/index.js';
 import {
   HostVerificationDocument,
   ClaimRequest,
@@ -67,6 +68,7 @@ export const databaseConfigAsync: TypeOrmModuleAsyncOptions = {
       entities: [
         User,
         Role,
+        UserSession,
         HostVerificationDocument,
         Homestay,
         Room,
