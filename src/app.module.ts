@@ -17,6 +17,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module.js';
 import { ChatModule } from './modules/chat/chat.module.js';
 import { CouponsModule } from './modules/coupons/coupons.module.js';
 import { SecurityModule } from './modules/security/security.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 @Module({
   imports: [
@@ -36,8 +37,9 @@ import { SecurityModule } from './modules/security/security.module.js';
     ChatModule,
     CouponsModule,
     SecurityModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
