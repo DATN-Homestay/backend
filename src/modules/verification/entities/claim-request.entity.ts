@@ -16,9 +16,9 @@ import { VerificationLog } from './verification-log.entity.js';
 
 export enum ClaimStatus {
   SUBMITTED = 'SUBMITTED',
-  PENDING_REVIEW = 'PENDING_REVIEW',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
+  PENDING_REVIEW = 'PENDING_REVIEW',   // Trust Score 70-99: Chờ Admin xét duyệt thủ công
+  APPROVED = 'APPROVED',              // Phê duyệt (Auto >= 100đ hoặc Admin thủ công)
+  REJECTED = 'REJECTED',              // Từ chối (< 70đ hoặc Admin từ chối)
 }
 
 @Entity({ name: 'claim_requests' })
