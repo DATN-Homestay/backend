@@ -12,18 +12,18 @@ import { ApprovePayoutDto } from './dto/approve-payout.dto.js';
 import { RejectClaimDto } from './dto/reject-claim.dto.js';
 import { SyncMarketDataDto } from './dto/sync-market-data.dto.js';
 
-// TODO: Thêm JwtAuthGuard và RolesGuard khi auth module hoàn thiện
-// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-// import { RolesGuard } from '../auth/guards/roles.guard.js';
-// import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleType } from '../users/entities/role.entity.js';
 
 /**
  * Admin Controller - Toàn quyền hệ thống (RBAC Role: ADMIN)
  * Base route: /admin
  */
 @Controller('admin')
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles('ADMIN')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(RoleType.ADMIN)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 

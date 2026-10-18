@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { HomestaysService } from './homestays.service.js';
 import { CreateHomestayDto } from './dto/create-homestay.dto.js';
@@ -18,12 +19,29 @@ import { UploadRoomImageDto } from './dto/upload-room-image.dto.js';
 import { UpdateCalendarDto } from './dto/update-calendar.dto.js';
 import { BatchUpdateCalendarDto } from './dto/batch-update-calendar.dto.js';
 
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleType } from '../users/entities/role.entity.js';
+
 @Controller('host')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(RoleType.HOST, RoleType.ADMIN)
 export class HostHomestaysController {
   constructor(private readonly homestaysService: HomestaysService) {}
 
   private getHostId(req: any): string {
-    return req.user?.id || (req.headers['x-user-id'] as string) || '1';
+    return String(req.user?.id || req.user?.sub || (req.headers['x-user-id'] as string) || '1');
+  }
+
+  // ==========================================
+  // 0. THỐNG KÊ TỔNG QUAN DASHBOARD
+  // ==========================================
+
+  @Get('dashboard/stats')
+  async getDashboardStats(@Req() req: any) {
+    const hostId = this.getHostId(req);
+    return await this.homestaysService.getHostDashboardStats(hostId);
   }
 
   // ==========================================
