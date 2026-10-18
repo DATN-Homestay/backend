@@ -5,7 +5,15 @@ import {
   Body,
   Param,
   Req,
+  Res,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { VerificationService } from './verification.service.js';
 import { VerifyCccdDto } from './dto/verify-cccd.dto.js';
 import { SendOtpDto } from './dto/send-otp.dto.js';
@@ -13,12 +21,70 @@ import { CheckOtpDto } from './dto/check-otp.dto.js';
 import { VerifyGpsDto } from './dto/verify-gps.dto.js';
 import { VerifyLiveImageDto } from './dto/verify-live-image.dto.js';
 
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleType } from '../users/entities/role.entity.js';
+
 @Controller('host/verify')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(RoleType.HOST, RoleType.ADMIN)
 export class VerificationController {
   constructor(private readonly verificationService: VerificationService) {}
 
   private getHostId(req: any): string {
-    return req.user?.id || (req.headers['x-user-id'] as string) || '1';
+    return String(req.user?.id || req.user?.sub || (req.headers['x-user-id'] as string) || '1');
+  }
+
+  /**
+   * Tải ảnh CCCD (Mặt trước / Mặt sau) lên máy chủ lưu trữ an toàn
+   */
+  @Post('upload-cccd')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 }, // Tối đa 10MB
+      fileFilter: (_req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException('Chỉ chấp nhận file ảnh định dạng JPG, PNG, WEBP!'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadCccdImage(@UploadedFile() file: any) {
+    if (!file) {
+      throw new BadRequestException('Vui lòng chọn file ảnh CCCD cần tải lên!');
+    }
+    const uploadDir = path.resolve(process.cwd(), 'uploads', 'cccd');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const ext = path.extname(file.originalname) || '.jpg';
+    const fileName = `cccd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
+    const filePath = path.join(uploadDir, fileName);
+    fs.writeFileSync(filePath, file.buffer);
+
+    return {
+      statusCode: 200,
+      message: 'Tải ảnh CCCD thành công',
+      data: {
+        file_name: fileName,
+        image_url: `/api/v1/host/verify/files/${fileName}`,
+      },
+    };
+  }
+
+  /**
+   * Phục vụ xem file ảnh CCCD được lưu trữ
+   */
+  @Get('files/:filename')
+  async getCccdFile(@Param('filename') filename: string, @Res() res: any) {
+    const safeFilename = path.basename(filename);
+    const filePath = path.resolve(process.cwd(), 'uploads', 'cccd', safeFilename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'Không tìm thấy file ảnh' });
+    }
+    return res.sendFile(filePath);
   }
 
   /**

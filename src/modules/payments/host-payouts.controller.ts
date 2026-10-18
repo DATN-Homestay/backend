@@ -4,16 +4,24 @@ import {
   Post,
   Body,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { PaymentsService } from './payments.service.js';
 import { RequestPayoutDto } from './dto/request-payout.dto.js';
 
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleType } from '../users/entities/role.entity.js';
+
 @Controller('host/payouts')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(RoleType.HOST, RoleType.ADMIN)
 export class HostPayoutsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   private getHostId(req: any): string {
-    return req.user?.id || (req.headers['x-user-id'] as string) || '1';
+    return String(req.user?.id || req.user?.sub || (req.headers['x-user-id'] as string) || '1');
   }
 
   /**

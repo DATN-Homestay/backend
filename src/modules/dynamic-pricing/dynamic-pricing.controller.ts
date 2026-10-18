@@ -5,16 +5,24 @@ import {
   Query,
   Body,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { DynamicPricingService } from './dynamic-pricing.service.js';
 import { ApplyPricingDto } from './dto/apply-pricing.dto.js';
 
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleType } from '../users/entities/role.entity.js';
+
 @Controller('host/pricing')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(RoleType.HOST, RoleType.ADMIN)
 export class DynamicPricingController {
   constructor(private readonly dynamicPricingService: DynamicPricingService) {}
 
   private getHostId(req: any): string {
-    return req.user?.id || (req.headers['x-user-id'] as string) || '1';
+    return String(req.user?.id || req.user?.sub || (req.headers['x-user-id'] as string) || '1');
   }
 
   /**

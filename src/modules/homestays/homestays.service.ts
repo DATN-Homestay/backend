@@ -339,4 +339,40 @@ export class HomestaysService {
       updated_count: results.length,
     };
   }
+
+  async getHostDashboardStats(hostId: string) {
+    const homestays = await this.homestayRepo.find({
+      where: { host_id: hostId },
+      relations: ['rooms'],
+      order: { created_at: 'DESC' },
+    });
+
+    const totalHomestays = homestays.length;
+    const totalRooms = homestays.reduce(
+      (sum, h) => sum + (h.rooms?.length || 0),
+      0,
+    );
+    const verifiedCount = homestays.filter((h) => h.is_claimed === 1).length;
+
+    return {
+      statusCode: 200,
+      data: {
+        totalHomestays,
+        totalRooms,
+        verifiedCount,
+        homestays: homestays.map((h) => ({
+          id: h.id,
+          name: h.name,
+          city: h.city,
+          address: h.address,
+          is_claimed: h.is_claimed,
+          status: h.status,
+          average_rating: h.average_rating,
+          total_reviews: h.total_reviews,
+          rooms_count: h.rooms?.length || 0,
+        })),
+      },
+    };
+  }
 }
+
