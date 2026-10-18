@@ -5,6 +5,8 @@ import {
   EscrowHold,
   RefundTransaction,
 } from './entities/index.js';
+import { BookingsService } from './bookings.service.js';
+import { HostBookingsController } from './host-bookings.controller.js';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import {
       RefundTransaction,
     ]),
   ],
-  exports: [TypeOrmModule],
+  controllers: [HostBookingsController],
+  providers: [BookingsService],
+  exports: [BookingsService, TypeOrmModule],
 })
 export class BookingsModule {}

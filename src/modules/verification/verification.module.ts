@@ -5,6 +5,10 @@ import {
   ClaimRequest,
   VerificationLog,
 } from './entities/index.js';
+import { Homestay } from '../homestays/entities/homestay.entity.js';
+import { User } from '../users/entities/user.entity.js';
+import { VerificationService } from './verification.service.js';
+import { VerificationController } from './verification.controller.js';
 
 @Module({
   imports: [
@@ -12,8 +16,12 @@ import {
       HostVerificationDocument,
       ClaimRequest,
       VerificationLog,
+      Homestay,
+      User,
     ]),
   ],
-  exports: [TypeOrmModule],
+  controllers: [VerificationController],
+  providers: [VerificationService],
+  exports: [VerificationService, TypeOrmModule],
 })
 export class VerificationModule {}
