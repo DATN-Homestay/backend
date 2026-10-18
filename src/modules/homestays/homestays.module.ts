@@ -8,11 +8,12 @@ import {
 } from './entities/index.js';
 import { HomestaysService } from './homestays.service.js';
 import { HomestaysController } from './homestays.controller.js';
+import { HostHomestaysController } from './host-homestays.controller.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Homestay, Room, RoomImage, PriceCalendar])],
-  controllers: [HomestaysController],
+  controllers: [HomestaysController, HostHomestaysController],
   providers: [HomestaysService],
-  exports: [HomestaysService],
+  exports: [HomestaysService, TypeOrmModule],
 })
 export class HomestaysModule {}

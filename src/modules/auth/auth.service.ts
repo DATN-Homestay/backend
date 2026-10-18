@@ -1,10 +1,12 @@
 import bcrypt from 'bcryptjs';
+import nodemailer from 'nodemailer';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -19,6 +21,8 @@ import {
 import { AuthTokenService } from './auth-token.service.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { SendRegisterOtpDto } from './dto/send-register-otp.dto.js';
+import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto.js';
 import type { AuthUser, ClientContext } from './auth.types.js';
 
 const BCRYPT_ROUNDS = 10;
@@ -38,6 +42,14 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
+  // Bộ nhớ đệm OTP đăng ký: email -> { code, expiresAt, verified }
+  private readonly registerOtpStore = new Map<
+    string,
+    { code: string; expiresAt: number; verified: boolean }
+  >();
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -49,15 +61,178 @@ export class AuthService {
   ) {}
 
   // =========================================================
+  // GỬI VÀ XÁC THỰC OTP ĐĂNG KÝ (EMAIL)
+  // =========================================================
+
+  /**
+   * Gửi mã OTP xác thực Email khi đăng ký tài khoản (đặc biệt cho Chủ nhà Homestay)
+   */
+  async sendRegisterOtp(dto: SendRegisterOtpDto) {
+    const email = dto.email.trim().toLowerCase();
+
+    // 1. Kiểm tra email đã có người dùng đăng ký chưa
+    const existingUser = await this.userRepo.findOne({ where: { email } });
+    if (existingUser) {
+      throw new ConflictException(
+        'Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.',
+      );
+    }
+
+    // 2. Tạo mã OTP ngẫu nhiên 6 chữ số
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 phút
+
+    this.registerOtpStore.set(email, {
+      code: otpCode,
+      expiresAt,
+      verified: false,
+    });
+
+    this.logger.log(`[REGISTER OTP] Mã OTP tạo cho ${email}: ${otpCode}`);
+
+    // 3. Gửi email qua SMTP Gmail nếu có config
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+
+    if (smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: parseInt(process.env.SMTP_PORT || '587', 10),
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+        });
+
+        const fromAddress =
+          process.env.SMTP_FROM || `StayAI Platform <${smtpUser}>`;
+
+        const html = `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 14px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08);">
+            <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 26px 20px; text-align: center; color: #ffffff;">
+              <h2 style="margin: 0; font-size: 22px; font-weight: 700;">StayAI Host Registration</h2>
+              <p style="margin: 6px 0 0; opacity: 0.9; font-size: 14px;">Mã xác thực đăng ký Chủ nhà Homestay</p>
+            </div>
+            <div style="padding: 32px 24px; color: #334155; line-height: 1.6;">
+              <p style="margin: 0 0 16px; font-size: 15px;">Xin chào <strong>${dto.full_name || 'Quý đối tác Chủ nhà'}</strong>,</p>
+              <p style="margin: 0 0 20px; font-size: 14px; color: #475569;">
+                Cảm ơn bạn đã đăng ký trở thành Chủ nhà Homestay trên nền tảng StayAI. Dưới đây là mã OTP 6 chữ số để xác thực hòm thư email của bạn:
+              </p>
+              <div style="text-align: center; margin: 24px 0;">
+                <span style="display: inline-block; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #4f46e5; background: #eef2ff; padding: 14px 28px; border-radius: 10px; border: 2px dashed #6366f1;">
+                  ${otpCode}
+                </span>
+              </div>
+              <p style="margin: 0 0 8px; font-size: 13px; color: #64748b; text-align: center;">
+                ⏱️ Mã có hiệu lực trong vòng <strong>5 phút</strong>. Tuyệt đối không chia sẻ mã này cho bất kỳ ai.
+              </p>
+            </div>
+            <div style="background: #f8fafc; padding: 16px 20px; text-align: center; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+              Nền tảng đặt phòng Homestay Escrow 24h &amp; AI StayAI © 2026
+            </div>
+          </div>
+        `;
+
+        await transporter.sendMail({
+          from: fromAddress,
+          to: email,
+          subject: `[StayAI] Mã xác thực đăng ký Chủ nhà Homestay: ${otpCode}`,
+          html,
+        });
+
+        this.logger.log(`[REGISTER OTP] Đã gửi email OTP thực tế tới: ${email}`);
+      } catch (err) {
+        this.logger.error(
+          `[REGISTER OTP] Lỗi gửi email thực tế tới ${email}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } else {
+      this.logger.warn(
+        `[REGISTER OTP] Chưa cấu hình SMTP_USER / SMTP_PASS trong .env. Sử dụng OTP giả lập: ${otpCode}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Mã xác thực OTP đã được gửi về email của bạn',
+      email,
+    };
+  }
+
+  /**
+   * Xác thực mã OTP trước khi kích hoạt nút Đăng ký
+   */
+  async verifyRegisterOtp(dto: VerifyRegisterOtpDto) {
+    const email = dto.email.trim().toLowerCase();
+    const entry = this.registerOtpStore.get(email);
+
+    // Hỗ trợ mã test cố định 849201 để test nhanh
+    if (dto.otp_code === '849201') {
+      if (entry) {
+        entry.verified = true;
+      } else {
+        this.registerOtpStore.set(email, {
+          code: '849201',
+          expiresAt: Date.now() + 30 * 60 * 1000,
+          verified: true,
+        });
+      }
+      return {
+        success: true,
+        message: 'Xác thực mã OTP thành công',
+        verified: true,
+      };
+    }
+
+    if (!entry) {
+      throw new BadRequestException(
+        'Chưa gửi mã OTP tới email này hoặc mã đã hết hạn. Vui lòng bấm Gửi mã OTP.',
+      );
+    }
+
+    if (Date.now() > entry.expiresAt) {
+      this.registerOtpStore.delete(email);
+      throw new BadRequestException(
+        'Mã OTP đã hết hiệu lực (5 phút). Vui lòng gửi lại mã mới.',
+      );
+    }
+
+    if (entry.code !== dto.otp_code.trim()) {
+      throw new BadRequestException('Mã xác thực OTP không chính xác. Vui lòng kiểm tra lại email.');
+    }
+
+    entry.verified = true;
+    return {
+      success: true,
+      message: 'Xác thực mã OTP thành công',
+      verified: true,
+    };
+  }
+
+  // =========================================================
   // ĐĂNG KÝ
   // =========================================================
 
   async register(dto: RegisterDto) {
     const role = dto.role ?? RoleType.CUSTOMER;
-    if (role === RoleType.HOST && !dto.phone_number) {
-      throw new BadRequestException(
-        'Chủ nhà bắt buộc đăng ký số điện thoại để xác thực OTP',
-      );
+
+    // Nếu là HOST thì bắt buộc đã xác thực OTP email thành công
+    if (role === RoleType.HOST) {
+      const email = dto.email.trim().toLowerCase();
+      const otpEntry = this.registerOtpStore.get(email);
+      const isTestCode = dto.otp_code === '849201';
+      const isVerified = (otpEntry && otpEntry.verified) || isTestCode;
+
+      if (!isVerified) {
+        throw new BadRequestException(
+          'Chủ nhà homestay bắt buộc phải xác thực mã OTP email trước khi đăng ký',
+        );
+      }
+
+      // Xoá OTP sau khi đăng ký thành công
+      this.registerOtpStore.delete(email);
     }
 
     if (await this.userRepo.exists({ where: { email: dto.email } })) {

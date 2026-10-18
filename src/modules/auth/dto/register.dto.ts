@@ -45,4 +45,9 @@ export class RegisterDto {
   @IsOptional()
   @IsIn(SELF_REGISTER_ROLES, { message: 'Vai trò chỉ được là CUSTOMER hoặc HOST' })
   role?: SelfRegisterRole;
+
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  otp_code?: string;
 }
