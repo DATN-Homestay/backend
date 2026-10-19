@@ -26,6 +26,8 @@ export enum BookingStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   DISPUTED = 'DISPUTED',
+  /** Quá 15 phút giữ chỗ mà chưa thanh toán; phòng đã được mở lại */
+  EXPIRED = 'EXPIRED',
 }
 
 @Entity({ name: 'bookings' })
@@ -65,6 +67,24 @@ export class Booking {
 
   @Column({ type: 'decimal', precision: 12, scale: 2, comment: 'Tổng tiền khách phải trả (Server tính)' })
   total_amount: number;
+
+  @Column({ type: 'varchar', length: 500, nullable: true, comment: 'Ghi chú của khách khi đặt phòng' })
+  customer_note: string | null;
+
+  @Column({
+    type: 'tinyint',
+    default: 0,
+    comment: '1: Đặt vào homestay chưa có chủ (is_claimed = 0), chuyển Admin Concierge đặt hộ',
+  })
+  is_dropship: number;
+
+  @Index('idx_bookings_expires_at')
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    comment: 'Hạn giữ chỗ 15 phút chờ thanh toán VNPay',
+  })
+  expires_at: Date | null;
 
   @Index('idx_bookings_status')
   @Column({

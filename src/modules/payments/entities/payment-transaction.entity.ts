@@ -38,6 +38,30 @@ export class PaymentTransaction {
   @Column({ type: 'varchar', length: 10, nullable: true, comment: '00: Thành công' })
   vnp_response_code: string | null;
 
+  @Index('idx_payment_transactions_vnp_txn_ref', { unique: true })
+  @Column({
+    type: 'varchar',
+    length: 40,
+    nullable: true,
+    comment: 'Mã tham chiếu gửi VNPay (vnp_TxnRef), duy nhất cho từng lần thanh toán, dùng chống xử lý trùng IPN',
+  })
+  vnp_txn_ref: string | null;
+
+  @Column({ type: 'varchar', length: 14, nullable: true, comment: 'vnp_PayDate yyyyMMddHHmmss, cần khi gọi API hoàn tiền' })
+  vnp_pay_date: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  bank_code: string | null;
+
+  @Column({ type: 'json', nullable: true, comment: 'Toàn bộ tham số IPN VNPay gửi về, phục vụ đối soát' })
+  ipn_payload: Record<string, string> | null;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'Hạn của link thanh toán' })
+  expires_at: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  paid_at: Date | null;
+
   @Column({
     type: 'enum',
     enum: PaymentStatus,

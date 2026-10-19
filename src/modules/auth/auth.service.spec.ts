@@ -133,6 +133,12 @@ describe('AuthService', () => {
 
     it('nên gán cả CUSTOMER và HOST khi đăng ký làm Host', async () => {
       roleRepo.find.mockResolvedValue([roleCustomer, roleHost]);
+      // Host phải xác thực OTP email trước khi đăng ký
+      (service as any).registerOtpStore.set(dto.email, {
+        code: '123456',
+        expiresAt: Date.now() + 60_000,
+        verified: true,
+      });
 
       const result = await service.register({ ...dto, role: RoleType.HOST });
 
@@ -140,11 +146,24 @@ describe('AuthService', () => {
       expect(userRepo.save.mock.calls[0][0].roles).toHaveLength(2);
     });
 
-    it('nên throw BadRequestException khi Host không có số điện thoại', async () => {
+    it('nên từ chối Host chưa xác thực OTP email', async () => {
       await expect(
-        service.register({ ...dto, phone_number: undefined, role: RoleType.HOST }),
-      ).rejects.toThrow(BadRequestException);
+        service.register({ ...dto, role: RoleType.HOST }),
+      ).rejects.toThrow('xác thực mã OTP email');
       expect(userRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('nên cho Host đăng ký không cần số điện thoại khi đã xác thực OTP email', async () => {
+      roleRepo.find.mockResolvedValue([roleCustomer, roleHost]);
+      (service as any).registerOtpStore.set(dto.email, {
+        code: '123456',
+        expiresAt: Date.now() + 60_000,
+        verified: true,
+      });
+
+      await service.register({ ...dto, phone_number: undefined, role: RoleType.HOST });
+
+      expect(userRepo.save.mock.calls[0][0].phone_number).toBeNull();
     });
 
     it('nên throw ConflictException khi email đã tồn tại', async () => {

@@ -223,8 +223,10 @@ getPendingPayouts(@CurrentUser('id') adminId: string) { ... }
 
 Không cho đổi email, SĐT, role qua API này. **Quên mật khẩu** để sau khi nhóm chọn dịch vụ gửi email.
 
-### GĐ3 – Đặt phòng & giữ chỗ chống Overbooking
+### GĐ3 – Đặt phòng & giữ chỗ chống Overbooking ✅ (backend xong 19/10/2026)
 **Nhánh**: `feature/module1-booking`
+
+> Đã làm: `customer-bookings.service.ts`, `booking-expiry.service.ts`; test chống Overbooking trên MySQL thật `test/booking-concurrency.e2e-spec.ts`. Chạy: `IT_DB_PORT=3317 IT_DB_NAME=stayai_it npm run test:e2e`. Chưa làm: mã giảm giá (GĐ6), nối frontend Checkout.
 
 | Method | Path | Mô tả |
 | :--- | :--- | :--- |
@@ -259,8 +261,10 @@ COMMIT;
 
 **Kiểm thử bắt buộc**: 20 request đồng thời vào phòng còn 1 đêm trống → đúng 1 đơn được tạo, 19 request nhận 409 (`AT-07`). Test này chạy trên MySQL thật (DB local/Docker), không dùng mock.
 
-### GĐ4 – Thanh toán VNPay
-**Nhánh**: `feature/module1-vnpay`
+### GĐ4 – Thanh toán VNPay ✅ (backend xong 19/10/2026, chưa thử với VNPay Sandbox thật)
+**Nhánh**: `feature/module1-booking` (làm chung nhánh với GĐ3)
+
+> Đã làm: `payments/customer-payments.service.ts`, `vnpay.helper.ts`; endpoint thực tế là `POST /bookings/:id/payment-url` (khách gọi sau khi tạo đơn). Cần điền `VNP_TMN_CODE`, `VNP_HASH_SECRET` và đăng ký IPN URL công khai (xem `.env.example`).
 
 | Method | Path | Mô tả |
 | :--- | :--- | :--- |
