@@ -41,26 +41,57 @@ export class HomestaysService {
   // PUBLIC / CUSTOMER QUERIES
   // ==========================================
 
-  async findAll(city?: string, limit: number = 20, offset: number = 0) {
+  // In-memory cache với TTL 30 giây giúp phản hồi siêu tốc (<5ms)
+  private listCache = new Map<string, { data: any; expiresAt: number }>();
+
+  async findAll(city?: string, limit: number = 1000, offset: number = 0) {
+    const cacheKey = `${city || 'all'}_${limit}_${offset}`;
+    const cached = this.listCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    // Tối ưu: Chỉ join ảnh chính (is_primary = 1 hoặc sort_order = 0) cho danh sách hiển thị
+    // Tránh bùng nổ dữ liệu hàng nghìn ảnh nặng Megabytes qua kết nối SSL tới Cloud DB
     const qb = this.homestayRepo
       .createQueryBuilder('homestay')
       .leftJoinAndSelect('homestay.rooms', 'room')
-      .leftJoinAndSelect('room.images', 'image')
+      .leftJoinAndSelect(
+        'room.images',
+        'image',
+        'image.is_primary = 1 OR image.sort_order = 0',
+      )
+      .addOrderBy('homestay.id', 'ASC')
+      .addOrderBy('room.id', 'ASC')
+      .addOrderBy('image.sort_order', 'ASC')
       .take(limit)
       .skip(offset);
 
     if (city) {
-      qb.where('homestay.city LIKE :city', { city: `%${city}%` });
+      qb.where('(homestay.city LIKE :city OR homestay.address LIKE :city OR homestay.name LIKE :city)', { city: `%${city}%` });
     }
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total, limit, offset };
+    const result = { items, total, limit, offset };
+
+    // Lưu cache 30 giây
+    this.listCache.set(cacheKey, { data: result, expiresAt: Date.now() + 30000 });
+
+    return result;
   }
 
   async findOne(id: string) {
     const homestay = await this.homestayRepo.findOne({
       where: { id },
       relations: ['rooms', 'rooms.images', 'reviews', 'absa_metric'],
+      order: {
+        rooms: {
+          id: 'ASC',
+          images: {
+            sort_order: 'ASC',
+          },
+        },
+      },
     });
     if (!homestay) {
       throw new NotFoundException(`Không tìm thấy homestay ID: ${id}`);

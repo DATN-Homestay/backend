@@ -8,7 +8,7 @@ export class HomestaysController {
   @Get()
   async getHomestays(
     @Query('city') city?: string,
-    @Query('limit') limit: number = 20,
+    @Query('limit') limit: number = 1000,
     @Query('offset') offset: number = 0,
   ) {
     return await this.homestaysService.findAll(city, Number(limit), Number(offset));

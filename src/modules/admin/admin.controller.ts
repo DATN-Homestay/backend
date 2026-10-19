@@ -8,6 +8,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
+import { RapidApiCrawlerService } from './rapidapi-crawler.service.js';
 import { ApprovePayoutDto } from './dto/approve-payout.dto.js';
 import { RejectClaimDto } from './dto/reject-claim.dto.js';
 import { SyncMarketDataDto } from './dto/sync-market-data.dto.js';
@@ -25,7 +26,10 @@ import { RoleType } from '../users/entities/role.entity.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(RoleType.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly crawlerService: RapidApiCrawlerService,
+  ) {}
 
   // =========================================================
   // PHÂN HỆ 1: ĐỐI SOÁT & GIẢI NGÂN PAYOUT (REQ-016, BR-013)
@@ -121,5 +125,18 @@ export class AdminController {
   syncRapidApiMarketData(@Body() dto: SyncMarketDataDto, @Request() req: any) {
     const adminId = req.user?.id ?? '1';
     return this.adminService.syncRapidApiMarketData(dto, adminId);
+  }
+
+  /**
+   * POST /admin/sync/crawl-booking-homestays
+   * Cào dữ liệu homestay từ Booking.com qua RapidAPI và lưu vào MySQL
+   */
+  @Post('sync/crawl-booking-homestays')
+  async crawlBookingHomestays(
+    @Body() body: { city?: string; limit?: number },
+  ) {
+    const city = body.city || 'Đà Lạt';
+    const limit = body.limit || 10;
+    return await this.crawlerService.crawlAndSaveHomestays(city, limit);
   }
 }
