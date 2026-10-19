@@ -1,0 +1,27 @@
+const key = '27760738a9msh3da596e3ac49627p1d9748jsn4a7304055238';
+const host = 'booking-com15.p.rapidapi.com';
+const hotelId = '11925801';
+
+async function checkBlocks() {
+  const detailUrl = `https://${host}/api/v1/hotels/getHotelDetails?hotel_id=${hotelId}&arrival_date=2026-11-01&departure_date=2026-11-02&adults=2&room_qty=1&units=metric&temperature_unit=c&languagecode=vi&currency_code=VND`;
+  const res = await fetch(detailUrl, {
+    headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': host }
+  });
+  const json = await res.json();
+  const d = json?.data;
+
+  console.log('Blocks length:', d?.block?.length);
+  if (d?.block) {
+    for (const b of d.block) {
+      console.log(`Block ID: ${b.room_id}, Name: ${b.name}, RoomName: ${b.room_name}, MaxOcc: ${b.max_occupancy}`);
+    }
+  }
+
+  // Check all keys in d
+  console.log('Keys in data:', Object.keys(d || {}));
+  if (d?.room_recommendation) {
+    console.log('Room recommendation:', d.room_recommendation);
+  }
+}
+
+checkBlocks();

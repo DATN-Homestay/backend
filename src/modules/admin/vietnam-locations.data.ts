@@ -1725,9 +1725,10 @@ export const VIETNAM_LOCATIONS: Record<string, string[]> = {
 };
 
 export const ALL_LOCATIONS_LIST = Object.keys(VIETNAM_LOCATIONS).sort((a, b) => {
-  const aPopular = POPULAR_DESTINATIONS.includes(a);
-  const bPopular = POPULAR_DESTINATIONS.includes(b);
-  if (aPopular && !bPopular) return -1;
-  if (!aPopular && bPopular) return 1;
+  const aIdx = POPULAR_DESTINATIONS.indexOf(a);
+  const bIdx = POPULAR_DESTINATIONS.indexOf(b);
+  if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+  if (aIdx !== -1) return -1;
+  if (bIdx !== -1) return 1;
   return a.localeCompare(b, 'vi');
 });
