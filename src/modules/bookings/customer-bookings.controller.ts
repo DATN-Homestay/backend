@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
@@ -31,6 +33,7 @@ export class CustomerBookingsController {
 
   /** POST /bookings/quote - Báo giá theo từng đêm, không giữ chỗ (Public) */
   @Post('bookings/quote')
+  @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   quote(@Body() dto: QuoteBookingDto) {
     return this.bookingsService.quote(dto);

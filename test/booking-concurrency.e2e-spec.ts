@@ -11,37 +11,17 @@ import {
   BookingStatus,
 } from '../src/modules/bookings/entities/booking.entity.js';
 import { Room } from '../src/modules/homestays/entities/room.entity.js';
-import { Homestay } from '../src/modules/homestays/entities/homestay.entity.js';
 import { PriceCalendar } from '../src/modules/homestays/entities/price-calendar.entity.js';
-import { User } from '../src/modules/users/entities/user.entity.js';
-import { addDays, todayVn } from '../src/modules/bookings/booking.utils.js';
+import { itEnabled, seedRoom, typeOrmOptions } from './helpers/integration-db.js';
 import type { AuthUser } from '../src/modules/auth/auth.types.js';
 
 /**
  * Kiểm thử chống Overbooking (AT-07, BR-007) trên MySQL THẬT.
- * Mock không chứng minh được SELECT ... FOR UPDATE, nên test này cần một MySQL 8.
- *
- * Chạy:  IT_DB_PORT=3317 IT_DB_NAME=stayai_it npm run test:e2e -- booking-concurrency
- * Biến:  IT_DB_HOST (127.0.0.1), IT_DB_PORT, IT_DB_USER (root), IT_DB_PASSWORD (rỗng), IT_DB_NAME
- *
- * AN TOÀN: test XÓA SẠCH schema của DB đích nên chỉ chạy khi IT_DB_NAME chứa
- * "test", "_it" hoặc "e2e". Không bao giờ trỏ vào DB dùng chung của nhóm.
+ * Mock không chứng minh được SELECT ... FOR UPDATE nên cần một MySQL 8; xem test/helpers/integration-db.ts.
  */
-const dbName = process.env.IT_DB_NAME ?? '';
-const enabled = !!process.env.IT_DB_PORT && /(test|_it|e2e)/i.test(dbName);
-
-// Gom mọi entity của dự án (lớp có decorator), bỏ qua enum xuất cùng file
-const modules = (import.meta as any).glob('../src/**/*.entity.ts', { eager: true }) as Record<
-  string,
-  Record<string, unknown>
->;
-const ALL_ENTITIES = Object.values(modules)
-  .flatMap((m) => Object.values(m))
-  .filter((v): v is new () => unknown => typeof v === 'function');
-
 const CUSTOMERS = 20;
 
-describe.skipIf(!enabled)('Chống Overbooking trên MySQL thật', () => {
+describe.skipIf(!itEnabled)('Chống Overbooking trên MySQL thật', () => {
   let moduleRef: TestingModule;
   let dataSource: DataSource;
   let bookings: CustomerBookingsService;
@@ -65,16 +45,7 @@ describe.skipIf(!enabled)('Chống Overbooking trên MySQL thật', () => {
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
       imports: [
-        TypeOrmModule.forRoot({
-          type: 'mysql',
-          host: process.env.IT_DB_HOST ?? '127.0.0.1',
-          port: Number(process.env.IT_DB_PORT),
-          username: process.env.IT_DB_USER ?? 'root',
-          password: process.env.IT_DB_PASSWORD ?? '',
-          database: dbName,
-          entities: ALL_ENTITIES,
-          extra: { connectionLimit: 40 },
-        }),
+        TypeOrmModule.forRoot(typeOrmOptions()),
         TypeOrmModule.forFeature([Booking, Room, PriceCalendar]),
       ],
       providers: [CustomerBookingsService, BookingExpiryService],
@@ -90,55 +61,7 @@ describe.skipIf(!enabled)('Chống Overbooking trên MySQL thật', () => {
   });
 
   beforeEach(async () => {
-    await dataSource.synchronize(true); // xóa sạch rồi tạo lại schema
-
-    const userRepo = dataSource.getRepository(User);
-    const host = await userRepo.save(
-      userRepo.create({ email: 'host@it.vn', password_hash: 'x', full_name: 'Host' }),
-    );
-    const saved = await userRepo.save(
-      Array.from({ length: CUSTOMERS }, (_, i) =>
-        userRepo.create({ email: `c${i}@it.vn`, password_hash: 'x', full_name: `Khách ${i}` }),
-      ),
-    );
-    customers = saved.map((u) => ({
-      id: u.id,
-      email: u.email,
-      roles: ['CUSTOMER'],
-      session_id: '1',
-    }));
-
-    const homestay = await dataSource.getRepository(Homestay).save(
-      dataSource.getRepository(Homestay).create({
-        host_id: host.id,
-        name: 'Villa IT',
-        address: '1 Test',
-        city: 'Đà Lạt',
-        latitude: 11.94,
-        longitude: 108.44,
-        is_claimed: 1,
-      }),
-    );
-    const room = await dataSource.getRepository(Room).save(
-      dataSource.getRepository(Room).create({
-        homestay_id: homestay.id,
-        room_name: 'Phòng cuối cùng',
-        capacity: 2,
-        base_price: 900000,
-      }),
-    );
-    roomId = room.id;
-
-    d0 = addDays(todayVn(), 1);
-    d1 = addDays(d0, 1);
-    d2 = addDays(d0, 2);
-    d3 = addDays(d0, 3);
-    const calRepo = dataSource.getRepository(PriceCalendar);
-    await calRepo.save(
-      [d0, d1, d2].map((date, i) =>
-        calRepo.create({ room_id: roomId, date, price: 900000 + i * 100000, is_available: 1 }),
-      ),
-    );
+    ({ customers, roomId, d0, d1, d2, d3 } = await seedRoom(dataSource, { customers: CUSTOMERS }));
   });
 
   const calendarState = () =>
