@@ -34,6 +34,25 @@ export class Room {
   @Column({ type: 'decimal', precision: 12, scale: 2, comment: 'Giá gốc niêm yết của Host' })
   base_price: number;
 
+  @Column({ type: 'int', nullable: true, comment: 'Diện tích phòng (m²)' })
+  area_sqm: number | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true, comment: 'Thông tin giường' })
+  bed_info: string | null;
+
+  @Column({ type: 'text', nullable: true, comment: 'Mô tả chi tiết phòng' })
+  description: string | null;
+
+  @Column({ type: 'json', nullable: true, comment: 'Chi tiết tiện nghi phòng (badges, bathroom, views, general, smoking)' })
+  room_details_json: {
+    badges?: string[];
+    bed_rating_text?: string;
+    bathroom_amenities?: string[];
+    views?: string[];
+    room_amenities?: string[];
+    smoking_policy?: string;
+  } | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 
