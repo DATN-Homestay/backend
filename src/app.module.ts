@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { databaseConfigAsync } from './config/database.config.js';
@@ -30,6 +31,8 @@ import { AdminModule } from './modules/admin/admin.module.js';
     TypeOrmModule.forRootAsync(databaseConfigAsync),
     // Mặc định 100 request/phút/IP; route nhạy cảm tự đặt @Throttle chặt hơn (REQ-028)
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    // Job nền: hết hạn giữ chỗ 15 phút, ...
+    ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
     HomestaysModule,

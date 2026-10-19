@@ -5,8 +5,14 @@ import {
   EscrowHold,
   RefundTransaction,
 } from './entities/index.js';
+import { Room } from '../homestays/entities/room.entity.js';
+import { Homestay } from '../homestays/entities/homestay.entity.js';
+import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
 import { BookingsService } from './bookings.service.js';
 import { HostBookingsController } from './host-bookings.controller.js';
+import { CustomerBookingsController } from './customer-bookings.controller.js';
+import { CustomerBookingsService } from './customer-bookings.service.js';
+import { BookingExpiryService } from './booking-expiry.service.js';
 
 @Module({
   imports: [
@@ -14,10 +20,13 @@ import { HostBookingsController } from './host-bookings.controller.js';
       Booking,
       EscrowHold,
       RefundTransaction,
+      Room,
+      Homestay,
+      PriceCalendar,
     ]),
   ],
-  controllers: [HostBookingsController],
-  providers: [BookingsService],
-  exports: [BookingsService, TypeOrmModule],
+  controllers: [HostBookingsController, CustomerBookingsController],
+  providers: [BookingsService, CustomerBookingsService, BookingExpiryService],
+  exports: [BookingsService, CustomerBookingsService, BookingExpiryService, TypeOrmModule],
 })
 export class BookingsModule {}
