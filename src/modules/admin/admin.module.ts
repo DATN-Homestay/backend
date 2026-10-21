@@ -11,6 +11,7 @@ import { Homestay } from '../homestays/entities/homestay.entity.js';
 import { Room } from '../homestays/entities/room.entity.js';
 import { RoomImage } from '../homestays/entities/room-image.entity.js';
 import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
+import { BookingsModule } from '../bookings/bookings.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
       RoomImage,
       PriceCalendar,
     ]),
+    BookingsModule,
   ],
   controllers: [AdminController, CrawlerController],
   providers: [AdminService, RapidApiCrawlerService],

@@ -26,6 +26,7 @@ import {
   generateTxnRef,
   verifySignature,
 } from './vnpay.helper.js';
+import { B2bDemandFulfillmentService } from '../bookings/b2b-demand-fulfillment.service.js';
 
 const SANDBOX_URL = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
 /** Link thanh toán cần còn tối thiểu từng này thời gian mới đáng tạo */
@@ -50,6 +51,7 @@ export class CustomerPaymentsService {
     private readonly paymentRepo: Repository<PaymentTransaction>,
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
+    private readonly b2bFulfillmentService: B2bDemandFulfillmentService,
   ) {}
 
   // =========================================================
@@ -244,6 +246,15 @@ export class CustomerPaymentsService {
 
     await this.createEscrow(em, booking, payment);
     this.logger.log(`Đơn ${booking.booking_code} đã thanh toán, tiền vào ký quỹ Escrow`);
+
+    // Tự động đặt phòng ngầm qua Booking.com Demand API nếu là đơn Dropship
+    if (booking.is_dropship === 1) {
+      setTimeout(() => {
+        void this.b2bFulfillmentService.fulfillDropshipBooking(booking.id).catch((err) => {
+          this.logger.error(`[B2B Fulfillment Error] Đơn ${booking.booking_code}: ${err.message}`);
+        });
+      }, 300);
+    }
   }
 
   /**
@@ -365,6 +376,8 @@ export class CustomerPaymentsService {
       booking_id: payment.booking_id,
       booking_code: payment.booking.booking_code,
       booking_status: payment.booking.status,
+      is_dropship: payment.booking.is_dropship === 1,
+      ota_fulfillment: payment.booking.ota_fulfillment_json ?? null,
       amount: toVnd(payment.amount),
       status: payment.status,
       paid_at: payment.paid_at,
