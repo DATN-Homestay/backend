@@ -78,6 +78,13 @@ export class Booking {
   })
   is_dropship: number;
 
+  @Column({
+    type: 'json',
+    nullable: true,
+    comment: 'Thông tin kết quả đặt phòng B2B Demand API Booking.com',
+  })
+  ota_fulfillment_json: Record<string, any> | null;
+
   @Index('idx_bookings_expires_at')
   @Column({
     type: 'timestamp',
