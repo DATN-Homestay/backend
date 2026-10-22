@@ -168,6 +168,9 @@ describe('CustomerBookingsService', () => {
 
       expect(result.available).toBe(false);
       expect(result.unavailable_dates).toEqual([checkIn, addDays(checkIn, 1)]);
+      // Đêm đầu có dòng giá nhưng đã bị giữ; đêm sau chưa có dòng giá (chưa mở bán)
+      expect(result.held_dates).toEqual([checkIn]);
+      expect(result.no_price_dates).toEqual([addDays(checkIn, 1)]);
     });
 
     it('nên đánh dấu is_dropship với homestay chưa có chủ', async () => {

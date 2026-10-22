@@ -69,10 +69,10 @@ export class CustomerBookingsService {
     });
 
     const byDate = new Map(rows.map((r) => [r.date, r]));
-    const unavailable = stay.nights.filter((d) => {
-      const row = byDate.get(d);
-      return !row || row.is_available !== 1;
-    });
+    // Tách 2 lý do khác nhau để giao diện báo đúng: chưa mở bán (không có dòng giá) hoặc đã có người giữ/đặt
+    const noPriceDates = stay.nights.filter((d) => !byDate.has(d));
+    const heldDates = stay.nights.filter((d) => byDate.has(d) && byDate.get(d)!.is_available !== 1);
+    const unavailable = stay.nights.filter((d) => noPriceDates.includes(d) || heldDates.includes(d));
     const nightlyPrices = stay.nights
       .filter((d) => byDate.has(d))
       .map((d) => ({ date: d, price: toVnd(byDate.get(d)!.price) }));
@@ -81,6 +81,8 @@ export class CustomerBookingsService {
     return {
       available: unavailable.length === 0,
       unavailable_dates: unavailable,
+      no_price_dates: noPriceDates,
+      held_dates: heldDates,
       room_id: stay.room.id,
       room_name: stay.room.room_name,
       homestay: { id: stay.homestay.id, name: stay.homestay.name },
