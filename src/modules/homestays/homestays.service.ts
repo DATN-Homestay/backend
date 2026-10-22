@@ -551,23 +551,24 @@ export class HomestaysService {
     const verifiedCount = homestays.filter((h) => h.is_claimed === 1).length;
 
     return {
-      statusCode: 200,
-      data: {
-        totalHomestays,
-        totalRooms,
-        verifiedCount,
-        homestays: homestays.map((h) => ({
-          id: h.id,
-          name: h.name,
-          city: h.city,
-          address: h.address,
-          is_claimed: h.is_claimed,
-          status: h.status,
-          average_rating: h.average_rating,
-          total_reviews: h.total_reviews,
-          rooms_count: h.rooms?.length || 0,
-        })),
-      },
+      totalHomestays,
+      totalRooms,
+      verifiedCount,
+      homestays: homestays.map((h) => ({
+        id: h.id,
+        name: h.name,
+        city: h.city,
+        address: h.address,
+        is_claimed: h.is_claimed,
+        status: h.status,
+        average_rating: h.average_rating,
+        total_reviews: h.total_reviews,
+        rooms_count: h.rooms?.length || 0,
+        cover_image:
+          h.amenities_json?.main_image_url ||
+          (h.amenities_json?.property_images as string[])?.[0] ||
+          null,
+      })),
     };
   }
 }
