@@ -692,7 +692,11 @@ export class CccdOcrService {
     extractedData: ExtractedCccdData;
     fraudWarnings: string[];
   } | null> {
-    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    const apiKey = (
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      'AIzaSyAIy2zkqF9LQGf2R3Ba7MRh33scK47rf4g'
+    ).trim();
     if (!apiKey) {
       return null;
     }
