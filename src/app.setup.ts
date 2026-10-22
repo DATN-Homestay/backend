@@ -6,6 +6,10 @@ import { TransformResponseInterceptor } from './common/interceptors/transform-re
  * Cấu hình dùng chung cho main.ts và e2e test, đảm bảo test chạy đúng như production.
  */
 export function configureApp(app: INestApplication): void {
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
   app.setGlobalPrefix('api/v1');
   // whitelist + forbidNonWhitelisted: chặn client gửi kèm trường lạ như total_amount (Zero-Trust BR-009)
   app.useGlobalPipes(
