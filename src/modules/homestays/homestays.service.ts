@@ -123,7 +123,32 @@ export class HomestaysService {
     return homestay;
   }
 
+  async getHomestayTotalPhotoCount(homestayId: string): Promise<number> {
+    const homestay = await this.homestayRepo.findOne({
+      where: { id: homestayId },
+      relations: ['rooms', 'rooms.images'],
+    });
+    if (!homestay) return 0;
+    const propertyImages = (homestay.amenities_json?.property_images as string[]) || [];
+    const roomImagesCount = (homestay.rooms || []).reduce(
+      (sum, room) => sum + (room.images ? room.images.length : 0),
+      0,
+    );
+    return propertyImages.length + roomImagesCount;
+  }
+
   async createHomestay(hostId: string, dto: CreateHomestayDto) {
+    const propertyImages = dto.property_images || dto.amenities_json?.property_images || [];
+    if (propertyImages.length > 100) {
+      throw new BadRequestException('Một homestay chỉ được tải lên tối đa 100 ảnh');
+    }
+
+    const amenities = {
+      ...(dto.amenities_json || {}),
+      property_images: propertyImages,
+      main_image_url: dto.main_image_url || propertyImages[0] || dto.amenities_json?.main_image_url || null,
+    };
+
     const homestay = this.homestayRepo.create({
       ...dto,
       host_id: hostId,
@@ -131,16 +156,46 @@ export class HomestaysService {
       status: dto.status || HomestayStatus.ACTIVE,
       average_rating: 0,
       total_reviews: 0,
+      amenities_json: amenities,
     });
     const saved = await this.homestayRepo.save(homestay);
     this.listCache.clear();
-    this.logger.log(`Host #${hostId} đã tạo mới homestay #${saved.id} (${saved.name})`);
+    this.logger.log(`Host #${hostId} đã tạo mới homestay #${saved.id} (${saved.name}) với ${propertyImages.length} ảnh`);
     return saved;
   }
 
   async updateHomestay(hostId: string, homestayId: string, dto: UpdateHomestayDto) {
     const homestay = await this.findHostHomestay(hostId, homestayId);
+
+    // Kiểm tra và cập nhật ảnh homestay
+    const newPropertyImages = dto.property_images ?? dto.amenities_json?.property_images;
+    if (newPropertyImages !== undefined) {
+      const currentRoomImagesCount = (homestay.rooms || []).reduce(
+        (sum, room) => sum + (room.images ? room.images.length : 0),
+        0,
+      );
+      if (newPropertyImages.length + currentRoomImagesCount > 100) {
+        throw new BadRequestException(
+          `Tổng số lượng ảnh của homestay không được vượt quá 100 ảnh (Hiện có: ${currentRoomImagesCount} ảnh phòng, bạn đang chọn ${newPropertyImages.length} ảnh homestay)`,
+        );
+      }
+
+      homestay.amenities_json = {
+        ...(homestay.amenities_json || {}),
+        property_images: newPropertyImages,
+        main_image_url: dto.main_image_url || newPropertyImages[0] || homestay.amenities_json?.main_image_url || null,
+      };
+    }
+
     Object.assign(homestay, dto);
+    if (newPropertyImages !== undefined) {
+      homestay.amenities_json = {
+        ...(homestay.amenities_json || {}),
+        property_images: newPropertyImages,
+        main_image_url: dto.main_image_url || newPropertyImages[0] || homestay.amenities_json?.main_image_url || null,
+      };
+    }
+
     const updated = await this.homestayRepo.save(homestay);
     this.listCache.clear();
     this.logger.log(`Host #${hostId} đã cập nhật homestay #${homestayId}`);
@@ -161,20 +216,49 @@ export class HomestaysService {
 
   async createRoom(hostId: string, homestayId: string, dto: CreateRoomDto) {
     const homestay = await this.findHostHomestay(hostId, homestayId);
+    const roomImages = dto.images || [];
+
+    // Kiểm tra tổng số ảnh toàn homestay (tối đa 100 ảnh)
+    const currentTotalPhotos = await this.getHomestayTotalPhotoCount(homestayId);
+    if (currentTotalPhotos + roomImages.length > 100) {
+      throw new BadRequestException(
+        `Homestay này đã có ${currentTotalPhotos} ảnh. Thêm ${roomImages.length} ảnh phòng này sẽ vượt quá giới hạn tối đa 100 ảnh.`,
+      );
+    }
+
     const room = this.roomRepo.create({
-      ...dto,
+      room_name: dto.room_name,
+      capacity: dto.capacity,
+      base_price: dto.base_price,
       homestay_id: homestay.id,
     });
     const saved = await this.roomRepo.save(room);
+
+    // Lưu ảnh phòng nếu có
+    if (roomImages.length > 0) {
+      const imageEntities = roomImages.map((url, idx) =>
+        this.roomImageRepo.create({
+          room_id: saved.id,
+          image_url: url,
+          is_primary: idx === 0 ? 1 : 0,
+          sort_order: idx,
+        }),
+      );
+      await this.roomImageRepo.save(imageEntities);
+    }
+
     this.listCache.clear();
-    this.logger.log(`Host #${hostId} đã thêm phòng #${saved.id} cho homestay #${homestayId}`);
-    return saved;
+    this.logger.log(`Host #${hostId} đã thêm phòng #${saved.id} (${roomImages.length} ảnh) cho homestay #${homestayId}`);
+    return await this.roomRepo.findOne({
+      where: { id: saved.id },
+      relations: ['images'],
+    });
   }
 
   async updateRoom(hostId: string, roomId: string, dto: UpdateRoomDto) {
     const room = await this.roomRepo.findOne({
       where: { id: roomId },
-      relations: ['homestay'],
+      relations: ['homestay', 'images'],
     });
     if (!room) {
       throw new NotFoundException(`Không tìm thấy phòng #${roomId}`);
@@ -183,7 +267,38 @@ export class HomestaysService {
       throw new ForbiddenException('Bạn không sở hữu phòng thuộc homestay này');
     }
 
-    Object.assign(room, dto);
+    if (dto.images !== undefined) {
+      const currentTotalPhotos = await this.getHomestayTotalPhotoCount(room.homestay_id);
+      const currentRoomPhotosCount = room.images ? room.images.length : 0;
+      const netPhotoChange = dto.images.length - currentRoomPhotosCount;
+      if (currentTotalPhotos + netPhotoChange > 100) {
+        throw new BadRequestException(
+          `Cập nhật ảnh phòng này sẽ vượt quá giới hạn tối đa 100 ảnh của homestay (Hiện có: ${currentTotalPhotos} ảnh).`,
+        );
+      }
+
+      // Thay thế danh sách ảnh phòng
+      if (room.images && room.images.length > 0) {
+        await this.roomImageRepo.remove(room.images);
+      }
+      if (dto.images.length > 0) {
+        const imageEntities = dto.images.map((url, idx) =>
+          this.roomImageRepo.create({
+            room_id: room.id,
+            image_url: url,
+            is_primary: idx === 0 ? 1 : 0,
+            sort_order: idx,
+          }),
+        );
+        await this.roomImageRepo.save(imageEntities);
+      }
+    }
+
+    Object.assign(room, {
+      room_name: dto.room_name ?? room.room_name,
+      capacity: dto.capacity ?? room.capacity,
+      base_price: dto.base_price ?? room.base_price,
+    });
     const updated = await this.roomRepo.save(room);
     this.listCache.clear();
     return updated;
@@ -222,6 +337,11 @@ export class HomestaysService {
       throw new ForbiddenException('Bạn không sở hữu phòng này');
     }
 
+    const currentTotalPhotos = await this.getHomestayTotalPhotoCount(room.homestay_id);
+    if (currentTotalPhotos >= 100) {
+      throw new BadRequestException('Homestay đã đạt giới hạn tối đa 100 ảnh. Không thể tải thêm.');
+    }
+
     const image = this.roomImageRepo.create({
       room_id: roomId,
       image_url: dto.image_url,
@@ -232,6 +352,42 @@ export class HomestaysService {
     this.listCache.clear();
     return saved;
   }
+
+  async batchUploadRoomImages(hostId: string, roomId: string, imageUrls: string[]) {
+    const room = await this.roomRepo.findOne({
+      where: { id: roomId },
+      relations: ['homestay', 'images'],
+    });
+    if (!room) {
+      throw new NotFoundException(`Không tìm thấy phòng #${roomId}`);
+    }
+    if (room.homestay.host_id !== hostId) {
+      throw new ForbiddenException('Bạn không sở hữu phòng này');
+    }
+
+    const currentTotalPhotos = await this.getHomestayTotalPhotoCount(room.homestay_id);
+    if (currentTotalPhotos + imageUrls.length > 100) {
+      throw new BadRequestException(
+        `Homestay này đã có ${currentTotalPhotos} ảnh. Thêm ${imageUrls.length} ảnh sẽ vượt quá giới hạn 100 ảnh.`,
+      );
+    }
+
+    const currentMaxSort = (room.images || []).reduce((max, img) => Math.max(max, img.sort_order || 0), -1);
+    const hasPrimary = (room.images || []).some((img) => img.is_primary === 1);
+
+    const entities = imageUrls.map((url, idx) =>
+      this.roomImageRepo.create({
+        room_id: roomId,
+        image_url: url,
+        is_primary: !hasPrimary && idx === 0 ? 1 : 0,
+        sort_order: currentMaxSort + 1 + idx,
+      }),
+    );
+    const saved = await this.roomImageRepo.save(entities);
+    this.listCache.clear();
+    return saved;
+  }
+
 
   async deleteRoomImage(hostId: string, imageId: string) {
     const image = await this.roomImageRepo.findOne({
