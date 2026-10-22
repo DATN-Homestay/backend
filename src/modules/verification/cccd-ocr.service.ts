@@ -355,6 +355,20 @@ export class CccdOcrService {
    * 4. Bóc tách chi tiết các trường thông tin từ văn bản OCR của 2 mặt thẻ
    */
   parseCccdText(frontRawText: string, backRawText: string = ''): ExtractedCccdData {
+    let front = (frontRawText || '').trim();
+    let back = (backRawText || '').trim();
+
+    // Tự động phát hiện nếu người dùng nạp ngược ảnh mặt sau vào mặt trước
+    const frontHasBackClues = /IDVNM|DIRECTOR GENERAL|CỤC CẢNH SÁT|CUC CANH SAT|NGÓN TRỎ|NGON TRO/i.test(front);
+    const backHasFrontClues = /CĂN CƯỚC CÔNG DÂN|CAN CUOC CONG DAN|Họ và tên|Full name/i.test(back);
+    if (frontHasBackClues && !backHasFrontClues && !front.includes('CĂN CƯỚC CÔNG DÂN')) {
+      const temp = front;
+      front = back;
+      back = temp;
+    }
+
+    const combinedText = `${front}\n${back}`;
+
     const data: ExtractedCccdData = {
       cccd_number: '',
       full_name: '',
@@ -364,136 +378,203 @@ export class CccdOcrService {
       place_of_origin: '',
       place_of_residence: '',
       expiry_date: '',
-      personal_identification: '',
+      personal_identification: 'Không có dấu vết dị hình riêng biệt',
       issue_date: '',
       mrz_code: '',
-      raw_text: `${frontRawText}\n---\n${backRawText}`,
+      raw_text: `${front}\n---\n${back}`,
     };
 
-    const frontLines = frontRawText.split('\n').map((l) => l.trim()).filter(Boolean);
-    const backLines = backRawText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const frontLines = front.split('\n').map((l) => l.trim()).filter(Boolean);
+    const backLines = back.split('\n').map((l) => l.trim()).filter(Boolean);
 
-    // 1. Số CCCD (12 chữ số)
-    const cccdMatch =
-      frontRawText.match(/\b\d{12}\b/) ||
-      frontRawText.match(/\b(\d{3})\s*(\d{1})\s*(\d{2})\s*(\d{6})\b/);
-    if (cccdMatch) {
-      data.cccd_number = cccdMatch[0].replace(/\s+/g, '');
-    }
+    // ==========================================
+    // 1. GIẢI MÃ DẢI MÃ MRZ MẶT SAU (ICAO 9303 - 3 DÒNG)
+    // ==========================================
+    const mrzLines = combinedText
+      .split('\n')
+      .map((l) => l.trim().replace(/\s+/g, ''))
+      .filter((l) => l.includes('IDVNM') || l.includes('<<') || /^[A-Z0-9<]{25,36}$/.test(l));
 
-    // 2. Họ và tên
-    for (let i = 0; i < frontLines.length; i++) {
-      const line = frontLines[i];
-      if (/Họ và tên|Full name|Họ tên/i.test(line)) {
-        const parts = line.split(/(?:Full name|Họ và tên|Họ tên)[:\s]*/i);
-        const candidate = (parts[parts.length - 1] || '').trim();
-        if (candidate.length >= 3 && /^[A-ZÀ-Ỹ\s]+$/i.test(candidate)) {
-          data.full_name = candidate.toUpperCase();
-          break;
-        } else if (i + 1 < frontLines.length) {
-          const next = frontLines[i + 1].trim();
-          if (next.length >= 3 && /^[A-ZÀ-Ỹ\s]+$/i.test(next) && !/Ngày|Date|Sinh/i.test(next)) {
-            data.full_name = next.toUpperCase();
-            break;
+    if (mrzLines.length > 0) {
+      data.mrz_code = mrzLines.join('\n');
+
+      // MRZ Dòng 1: IDVNM...
+      const line1 = mrzLines.find((l) => l.startsWith('IDVNM'));
+      if (line1) {
+        const match12 = line1.match(/(\d{12})<{0,2}\d?$/) || line1.match(/\d{12}/);
+        if (match12) {
+          data.cccd_number = match12[1] || match12[0];
+        }
+      }
+
+      // MRZ Dòng 2: YYMMDD + Sex + YYMMDD + VNM
+      const line2 = mrzLines.find((l) => /^[0-9]{6,7}[MF]/i.test(l) || l.includes('VNM'));
+      if (line2) {
+        const sexMatch = line2.match(/([0-9]{6})[0-9]?([MF])([0-9]{6})/i);
+        if (sexMatch) {
+          const rawDob = sexMatch[1];
+          const sexChar = sexMatch[2].toUpperCase();
+          const rawExp = sexMatch[3];
+
+          if (!data.gender) data.gender = sexChar === 'M' ? 'Nam' : 'Nữ';
+
+          if (!data.date_of_birth && rawDob.length === 6) {
+            const yy = parseInt(rawDob.slice(0, 2), 10);
+            const mm = rawDob.slice(2, 4);
+            const dd = rawDob.slice(4, 6);
+            data.date_of_birth = `${dd}/${mm}/${yy > 30 ? 1900 + yy : 2000 + yy}`;
           }
+
+          if (!data.expiry_date && rawExp.length === 6) {
+            const yy = parseInt(rawExp.slice(0, 2), 10);
+            const mm = rawExp.slice(2, 4);
+            const dd = rawExp.slice(4, 6);
+            data.expiry_date = `${dd}/${mm}/${yy > 50 ? 1900 + yy : 2000 + yy}`;
+          }
+        }
+      }
+
+      // MRZ Dòng 3: Tên Latin ICAO (VD: PHUNG<<HAI<NAM<<<<)
+      const line3 = mrzLines.find(
+        (l) => l.includes('<<') && /^[A-Z<]+$/.test(l) && !l.includes('IDVNM') && !l.includes('VNM'),
+      );
+      if (line3) {
+        const cleanName = line3.replace(/<+/g, ' ').trim();
+        if (cleanName.length >= 3) {
+          data.full_name = cleanName;
         }
       }
     }
 
-    // 3. Ngày sinh (DD/MM/YYYY)
-    const birthMatch =
-      frontRawText.match(/(?:Ngày sinh|Date of birth|Sinh ngày)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
-      frontRawText.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/);
-    if (birthMatch) {
-      data.date_of_birth = birthMatch[1].replace(/[\-\.]/g, '/');
+    // ==========================================
+    // 2. SỐ CCCD TỪ MẶT TRƯỚC (HOẶC VĂN BẢN TỔNG HỢP)
+    // ==========================================
+    const cccdMatch =
+      front.match(/\b\d{12}\b/) ||
+      combinedText.match(/\b\d{12}\b/) ||
+      combinedText.match(/(?:Số|So|No|sé\/nvo|sé|só)[:\s\.]*(\d{12})/i) ||
+      combinedText.match(/(\d{3})\s*(\d{1})\s*(\d{2})\s*(\d{6})/);
+    if (cccdMatch) {
+      data.cccd_number = (cccdMatch[1] || cccdMatch[0]).replace(/\s+/g, '');
     }
 
-    // 4. Giới tính (Nam / Nữ)
-    if (/Giới tính.*Nam|Sex.*Nam|Sex.*M\b/i.test(frontRawText)) {
+    // ==========================================
+    // 3. HỌ VÀ TÊN TIẾNG VIỆT CÓ DẤU TỪ MẶT TRƯỚC
+    // ==========================================
+    for (let i = 0; i < frontLines.length; i++) {
+      const line = frontLines[i];
+      if (/Họ và tên|Full name|Họ tên/i.test(line)) {
+        let candidate = line.replace(/.*(?:Họ và tên|Full name|Họ tên)[:\s\.\-]*/i, '').trim();
+        if (!candidate && i + 1 < frontLines.length) {
+          candidate = frontLines[i + 1].trim();
+        }
+        // Loại bỏ từ nhiễu OCR đầu dòng (như "sảng ", "ng ", "1 ", "- ")
+        candidate = candidate.replace(/^[a-zà-ỹ0-9\s\-\.\:\/]+/g, '').trim();
+        candidate = candidate.replace(/[\.\:\-\/].*$/, '').trim();
+
+        if (candidate.length >= 3 && /^[A-ZÀ-Ỹ\s]+$/.test(candidate) && !/Ngày|Date|Sinh|Giới/i.test(candidate)) {
+          data.full_name = candidate;
+          break;
+        }
+      }
+    }
+
+    // ==========================================
+    // 4. NGÀY SINH (DD/MM/YYYY)
+    // ==========================================
+    const dobMatch =
+      front.match(/(?:Ngày sinh|Date of birth|Sinh ngày)[:\s\.\-]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
+      front.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/) ||
+      combinedText.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/);
+    if (dobMatch) {
+      data.date_of_birth = dobMatch[1].replace(/[\-\.]/g, '/');
+    }
+
+    // ==========================================
+    // 5. GIỚI TÍNH (Nam / Nữ)
+    // ==========================================
+    if (/Giới tính.*Nam|Sex.*Nam|Sex.*M\b/i.test(combinedText)) {
       data.gender = 'Nam';
-    } else if (/Giới tính.*Nữ|Sex.*Female|Sex.*F\b/i.test(frontRawText)) {
+    } else if (/Giới tính.*Nữ|Sex.*Female|Sex.*F\b/i.test(combinedText)) {
       data.gender = 'Nữ';
     } else if (data.cccd_number && data.cccd_number.length === 12) {
       const gCode = parseInt(data.cccd_number[3], 10);
       data.gender = gCode % 2 === 0 ? 'Nam' : 'Nữ';
     }
 
-    // 5. Quốc tịch
+    // ==========================================
+    // 6. QUỐC TỊCH
+    // ==========================================
     data.nationality = 'Việt Nam';
 
-    // 6. Quê quán
+    // ==========================================
+    // 7. QUÊ QUÁN (Place of origin)
+    // ==========================================
     for (let i = 0; i < frontLines.length; i++) {
       const line = frontLines[i];
       if (/Quê quán|Place of origin/i.test(line)) {
-        const parts = line.split(/(?:Place of origin|Quê quán)[:\s]*/i);
-        let origin = (parts[parts.length - 1] || '').trim();
+        let origin = line.replace(/.*(?:Quê quán|Place of origin)[:\s\.\-~]*/i, '').trim();
         if (!origin && i + 1 < frontLines.length) {
-          origin = frontLines[i + 1].trim();
+          origin = frontLines[i + 1].replace(/^[~~\-\.\s]*/, '').trim();
         }
-        data.place_of_origin = origin;
-        break;
+        if (origin) {
+          data.place_of_origin = origin.replace(/[~_]+$/g, '').trim();
+          break;
+        }
       }
     }
 
-    // 7. Nơi thường trú
+    // ==========================================
+    // 8. NƠI THƯỜNG TRÚ (Place of residence)
+    // ==========================================
     for (let i = 0; i < frontLines.length; i++) {
       const line = frontLines[i];
       if (/Nơi thường trú|Place of residence/i.test(line)) {
-        const parts = line.split(/(?:Place of residence|Nơi thường trú)[:\s]*/i);
-        let residence = (parts[parts.length - 1] || '').trim();
-        if (!residence && i + 1 < frontLines.length) {
-          residence = frontLines[i + 1].trim();
+        let res = line.replace(/.*(?:Nơi thường trú|Place of residence|Pisoe.*?residence)[:\s\.\-]*/i, '').trim();
+        let extra = '';
+        if (i + 1 < frontLines.length && !/Có giá trị|Date of/i.test(frontLines[i + 1])) {
+          extra = ' ' + frontLines[i + 1].replace(/^.*?(?:Nó\s*_|[\-_])\s*/, '').trim();
+        } else if (i + 2 < frontLines.length && !/Có giá trị|Date of/i.test(frontLines[i + 2])) {
+          extra = ' ' + frontLines[i + 2].replace(/^.*?(?:Nó\s*_|[\-_])\s*/, '').trim();
         }
-        data.place_of_residence = residence;
-        break;
+        res = (res + extra).replace(/[~_]+/g, ' ').replace(/\s+/g, ' ').trim();
+        if (res) {
+          data.place_of_residence = res;
+          break;
+        }
       }
     }
 
-    // 8. Có giá trị đến (Hạn sử dụng)
-    const expMatch = frontRawText.match(/(?:Có giá trị đến|Date of expiry)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i);
+    // ==========================================
+    // 9. CÓ GIÁ TRỊ ĐẾN (HẠN SỬ DỤNG)
+    // ==========================================
+    const expMatch = front.match(/(?:Có giá trị đến|Date of expiry)[:\s\.\-]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i);
     if (expMatch) {
       data.expiry_date = expMatch[1].replace(/[\-\.]/g, '/');
     }
 
-    // 9. Đặc điểm nhận dạng (Mặt sau)
-    for (let i = 0; i < backLines.length; i++) {
-      const line = backLines[i];
-      if (/Đặc điểm nhận dạng|Personal identification/i.test(line)) {
-        const parts = line.split(/(?:Personal identification|Đặc điểm nhận dạng)[:\s]*/i);
-        let feat = (parts[parts.length - 1] || '').trim();
-        if (!feat && i + 1 < backLines.length) {
-          feat = backLines[i + 1].trim();
-        }
-        data.personal_identification = feat;
-        break;
-      }
+    // ==========================================
+    // 10. ĐẶC ĐIỂM NHẬN DẠNG (MẶT SAU)
+    // ==========================================
+    const featMatch =
+      back.match(/(?:Đặc điểm nhận dạng|Dấu vết riêng|Personal identification)[:\s\.\-]*(.+?)(?=\n|$)/i);
+    if (featMatch && featMatch[1].trim().length > 3) {
+      data.personal_identification = featMatch[1].trim();
     }
 
-    // 10. Ngày cấp (Mặt sau)
+    // ==========================================
+    // 11. NGÀY CẤP (MẶT SAU)
+    // ==========================================
     const issueMatch =
-      backRawText.match(/(?:Ngày|Ngay)\s*(\d{1,2})\s*(?:tháng|thang)\s*(\d{1,2})\s*(?:năm|nam)\s*(\d{4})/i) ||
-      backRawText.match(/(?:Ngày cấp|Cấp ngày)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
-      backRawText.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/);
+      back.match(/(?:Ngày,?\s*tháng,?\s*năm|Date,?\s*month,?\s*year|Ngày cấp|Cấp ngày)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i) ||
+      back.match(/(?:year|năm)(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
+      back.match(/(?:Ngày|Ngay)\s*(\d{1,2})\s*(?:tháng|thang)\s*(\d{1,2})\s*(?:năm|nam)\s*(\d{4})/i);
+
     if (issueMatch) {
       if (issueMatch[3]) {
         data.issue_date = `${issueMatch[1].padStart(2, '0')}/${issueMatch[2].padStart(2, '0')}/${issueMatch[3]}`;
       } else {
         data.issue_date = issueMatch[1].replace(/[\-\.]/g, '/');
-      }
-    }
-
-    // 11. Dải mã MRZ mặt sau (3 dòng ICAO 9303) hoặc mã số mặt sau
-    const mrzLines = backLines.filter((l) => l.includes('<<') || l.startsWith('IDVNM'));
-    if (mrzLines.length > 0) {
-      data.mrz_code = mrzLines.join('\n');
-      if (!data.cccd_number) {
-        const mrzCccd = data.mrz_code.match(/IDVNM(\d{12})/);
-        if (mrzCccd) data.cccd_number = mrzCccd[1];
-      }
-    } else {
-      const backCodeMatch = backRawText.match(/[A-Z0-9]{8,20}/);
-      if (backCodeMatch) {
-        data.mrz_code = backCodeMatch[0];
       }
     }
 
@@ -555,8 +636,8 @@ export class CccdOcrService {
         normalizedText.includes(kw),
       );
 
-      // Ảnh mặt trước phải khớp tối thiểu 2 từ khóa đặc trưng của Quốc hiệu/CCCD
-      if (matchedKeywords.length < 2) {
+      // Ảnh mặt trước phải khớp tối thiểu 2 từ khóa đặc trưng của Quốc hiệu/CCCD hoặc có số CCCD hợp lệ
+      if (matchedKeywords.length < 2 && !extractedData.cccd_number) {
         fraudWarnings.push(
           'Ảnh mặt trước không chứa các thông tin đặc trưng của thẻ Căn cước công dân Việt Nam (Thiếu Quốc hiệu, tiêu đề thẻ CCCD hoặc các mục định danh)',
         );
@@ -612,24 +693,44 @@ export class CccdOcrService {
   }> {
     const frontAnalysis = await this.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
     let backAnalysis: any = undefined;
-    const allWarnings = [...frontAnalysis.fraudWarnings];
+    const allWarnings: string[] = [];
 
-    let combinedData: ExtractedCccdData = { ...frontAnalysis.extractedData };
+    let frontRaw = frontAnalysis.rawText || '';
+    let backRaw = '';
 
     if (backImageUrl) {
       if (frontImageUrl.trim() === backImageUrl.trim()) {
         allWarnings.push('Ảnh mặt trước và mặt sau thẻ CCCD không được trùng lặp một ảnh!');
       } else {
         backAnalysis = await this.scanAndAnalyzeCccd(backImageUrl, 'BACK');
-        allWarnings.push(...backAnalysis.fraudWarnings);
+        backRaw = backAnalysis.rawText || '';
+      }
+    }
 
-        // Gộp kết quả bóc tách từ mặt sau
-        combinedData = {
-          ...combinedData,
-          personal_identification: backAnalysis.extractedData?.personal_identification || combinedData.personal_identification,
-          issue_date: backAnalysis.extractedData?.issue_date || combinedData.issue_date,
-          mrz_code: backAnalysis.extractedData?.mrz_code || combinedData.mrz_code,
-        };
+    // Bóc tách tổng hợp chéo dữ liệu từ cả 2 mặt thẻ
+    const combinedData = this.parseCccdText(frontRaw, backRaw);
+
+    // Kiểm tra tính hợp lệ toán học của số CCCD tổng hợp
+    if (!combinedData.cccd_number) {
+      allWarnings.push(
+        'Không tìm thấy số Căn cước công dân (12 chữ số) hợp lệ trên ảnh. Vui lòng tải ảnh chụp thẻ CCCD thật, rõ nét!',
+      );
+    } else {
+      const structCheck = this.validateCccdStructure(combinedData.cccd_number);
+      if (!structCheck.isValid) {
+        allWarnings.push(`Số CCCD (${combinedData.cccd_number}) không hợp lệ: ${structCheck.error}`);
+      }
+    }
+
+    // Kiểm tra từ khóa giả mạo nếu có
+    if (frontAnalysis.fraudWarnings.length > 0) {
+      for (const w of frontAnalysis.fraudWarnings) {
+        if (!allWarnings.includes(w)) allWarnings.push(w);
+      }
+    }
+    if (backAnalysis && backAnalysis.fraudWarnings.length > 0) {
+      for (const w of backAnalysis.fraudWarnings) {
+        if (!allWarnings.includes(w)) allWarnings.push(w);
       }
     }
 

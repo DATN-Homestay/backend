@@ -91,19 +91,6 @@ export class VerificationController {
   }
 
   /**
-   * Phục vụ xem file ảnh CCCD được lưu trữ
-   */
-  @Get('files/:filename')
-  async getCccdFile(@Param('filename') filename: string, @Res() res: any) {
-    const safeFilename = path.basename(filename);
-    const filePath = path.resolve(process.cwd(), 'uploads', 'cccd', safeFilename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'Không tìm thấy file ảnh' });
-    }
-    return res.sendFile(filePath);
-  }
-
-  /**
    * BƯỚC 1: CCCD eKYC & Mã hóa AES-256 (+40đ) - Kiểm tra OCR & Anti-spoofing
    */
   @Post('cccd')
@@ -126,14 +113,22 @@ export class VerificationController {
       image_url?: string;
       image_base64?: string;
       front_image_url?: string;
+      front_image_base64?: string;
       back_image_url?: string;
+      back_image_base64?: string;
     },
   ) {
-    const front = body?.front_image_url || body?.image_base64 || body?.image_url;
+    const front =
+      body?.front_image_base64 ||
+      body?.front_image_url ||
+      body?.image_base64 ||
+      body?.image_url;
+    const back = body?.back_image_base64 || body?.back_image_url;
+
     if (!front) {
       throw new BadRequestException('Vui lòng cung cấp ảnh mặt trước CCCD để quét OCR');
     }
-    const data = await this.verificationService.scanCccdOcr(front, body?.back_image_url);
+    const data = await this.verificationService.scanCccdOcr(front, back);
     return {
       statusCode: 200,
       data,
@@ -203,5 +198,21 @@ export class VerificationController {
       statusCode: 200,
       data,
     };
+  }
+}
+
+/**
+ * Phục vụ xem file ảnh CCCD tĩnh không chặn token guard (để thẻ img/browser tải được)
+ */
+@Controller('host/verify/files')
+export class VerificationFilesController {
+  @Get(':filename')
+  async getCccdFile(@Param('filename') filename: string, @Res() res: any) {
+    const safeFilename = path.basename(filename);
+    const filePath = path.resolve(process.cwd(), 'uploads', 'cccd', safeFilename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'Không tìm thấy file ảnh' });
+    }
+    return res.sendFile(filePath);
   }
 }
