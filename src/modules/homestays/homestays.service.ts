@@ -52,7 +52,7 @@ export class HomestaysService {
     }
 
     // Tối ưu: Chỉ join ảnh chính (is_primary = 1 hoặc sort_order = 0) cho danh sách hiển thị
-    // Tránh bùng nổ dữ liệu hàng nghìn ảnh nặng Megabytes qua kết nối SSL tới Cloud DB
+    // Chú ý: Chỉ orderBy('homestay.id') để TypeORM DISTINCT trên homestay, tránh bị limit theo số lượng room/image
     const qb = this.homestayRepo
       .createQueryBuilder('homestay')
       .leftJoinAndSelect('homestay.rooms', 'room')
@@ -61,9 +61,7 @@ export class HomestaysService {
         'image',
         'image.is_primary = 1 OR image.sort_order = 0',
       )
-      .addOrderBy('homestay.id', 'ASC')
-      .addOrderBy('room.id', 'ASC')
-      .addOrderBy('image.sort_order', 'ASC')
+      .orderBy('homestay.id', 'DESC')
       .take(limit)
       .skip(offset);
 
@@ -135,6 +133,7 @@ export class HomestaysService {
       total_reviews: 0,
     });
     const saved = await this.homestayRepo.save(homestay);
+    this.listCache.clear();
     this.logger.log(`Host #${hostId} đã tạo mới homestay #${saved.id} (${saved.name})`);
     return saved;
   }
@@ -143,6 +142,7 @@ export class HomestaysService {
     const homestay = await this.findHostHomestay(hostId, homestayId);
     Object.assign(homestay, dto);
     const updated = await this.homestayRepo.save(homestay);
+    this.listCache.clear();
     this.logger.log(`Host #${hostId} đã cập nhật homestay #${homestayId}`);
     return updated;
   }
@@ -150,6 +150,7 @@ export class HomestaysService {
   async deleteHomestay(hostId: string, homestayId: string) {
     const homestay = await this.findHostHomestay(hostId, homestayId);
     await this.homestayRepo.remove(homestay);
+    this.listCache.clear();
     this.logger.log(`Host #${hostId} đã xóa homestay #${homestayId}`);
     return { message: `Đã xóa thành công homestay #${homestayId}` };
   }
@@ -165,6 +166,7 @@ export class HomestaysService {
       homestay_id: homestay.id,
     });
     const saved = await this.roomRepo.save(room);
+    this.listCache.clear();
     this.logger.log(`Host #${hostId} đã thêm phòng #${saved.id} cho homestay #${homestayId}`);
     return saved;
   }
@@ -182,7 +184,9 @@ export class HomestaysService {
     }
 
     Object.assign(room, dto);
-    return await this.roomRepo.save(room);
+    const updated = await this.roomRepo.save(room);
+    this.listCache.clear();
+    return updated;
   }
 
   async deleteRoom(hostId: string, roomId: string) {
@@ -198,6 +202,7 @@ export class HomestaysService {
     }
 
     await this.roomRepo.remove(room);
+    this.listCache.clear();
     return { message: `Đã xóa phòng #${roomId}` };
   }
 
@@ -223,7 +228,9 @@ export class HomestaysService {
       is_primary: dto.is_primary ?? 0,
       sort_order: dto.sort_order ?? 0,
     });
-    return await this.roomImageRepo.save(image);
+    const saved = await this.roomImageRepo.save(image);
+    this.listCache.clear();
+    return saved;
   }
 
   async deleteRoomImage(hostId: string, imageId: string) {
@@ -239,8 +246,10 @@ export class HomestaysService {
     }
 
     await this.roomImageRepo.remove(image);
+    this.listCache.clear();
     return { message: `Đã xóa ảnh #${imageId}` };
   }
+
 
   // ==========================================
   // HOST PRICE & AVAILABILITY CALENDAR
