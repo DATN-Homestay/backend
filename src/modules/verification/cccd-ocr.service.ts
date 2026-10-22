@@ -254,16 +254,20 @@ export class CccdOcrService {
     if (
       trimmed.startsWith('data:image/') ||
       trimmed.startsWith('data:application/octet-stream') ||
-      trimmed.startsWith('data:;base64,')
+      trimmed.startsWith('data:;base64,') ||
+      trimmed.startsWith('/9j/') ||
+      trimmed.startsWith('iVBORw0KGgo') ||
+      (!trimmed.startsWith('http') && !trimmed.includes('/') && trimmed.length > 500)
     ) {
       try {
         const base64Data = trimmed.includes(',') ? trimmed.split(',')[1] : trimmed;
         const buffer = Buffer.from(base64Data, 'base64');
-        if (buffer.length < 5 * 1024) {
-          throw new BadRequestException('Ảnh tải lên có dung lượng quá nhỏ (< 5KB), không đạt chuẩn ảnh CCCD');
+        if (buffer.length < 2 * 1024) {
+          throw new BadRequestException('Ảnh tải lên có dung lượng quá nhỏ (< 2KB), không đạt chuẩn ảnh CCCD');
         }
         return buffer;
       } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
         throw new BadRequestException(`Lỗi giải mã ảnh base64: ${err.message}`);
       }
     }
@@ -682,7 +686,7 @@ export class CccdOcrService {
   }
 
   /**
-   * 6. Quét OCR thông minh bằng Google Gemini 2.0 / 1.5 Flash Vision (Multimodal AI)
+   * 6. Quét OCR thông minh bằng Google Gemini Vision (Hỗ trợ luân chuyển đa mô hình 2.5 / 1.5 / 2.0 Flash)
    */
   async scanWithGeminiVision(
     frontBuffer: Buffer,
@@ -702,27 +706,33 @@ export class CccdOcrService {
     }
 
     try {
-      this.logger.log('[Gemini Vision OCR] Đang phân tích bóc tách CCCD bằng Google Gemini AI...');
+      this.logger.log(
+        `[Gemini Vision OCR] Bắt đầu phân tích bóc tách CCCD bằng Google Gemini AI (${
+          backBuffer ? 'Có cả 2 mặt trước & sau' : 'Chỉ có mặt trước'
+        })...`,
+      );
 
-      const parts: any[] = [
-        {
-          text: `Bạn là trợ lý AI chuyên gia eKYC và thẩm định giấy tờ tuỳ thân Việt Nam.
-Nhiệm vụ: Phân tích ảnh thẻ Căn cước công dân (CCCD) được cung cấp (gồm mặt trước và/hoặc mặt sau) và trích xuất chính xác 100% tiếng Việt có dấu các trường thông tin.
+      const promptText = `Bạn là trợ lý AI cao cấp chuyên gia eKYC và thẩm định giấy tờ tuỳ thân Việt Nam.
+Nhiệm vụ: Phân tích ảnh thẻ Căn cước công dân (CCCD) được cung cấp và trích xuất chính xác 100% tiếng Việt có dấu các trường thông tin.
 
 YÊU CẦU QUAN TRỌNG:
-1. Xác định xem ảnh có phải là thẻ Căn cước công dân Việt Nam thật hay không. Nếu ảnh là ảnh con vật, phong cảnh, đồ vật, selfie cá nhân, hoặc tài liệu không phải CCCD: đặt "is_cccd": false và ghi rõ lý do vào mảng "fraud_warnings".
-2. Bóc tách toàn bộ 10 trường dữ liệu chính xác, giữ nguyên đầy đủ dấu tiếng Việt:
-   - cccd_number: 12 chữ số
-   - full_name: Họ và tên viết hoa có dấu (ví dụ: PHÙNG HẢI NAM)
+1. Xác định xem ảnh có phải là thẻ Căn cước công dân Việt Nam thật hay không. Nếu ảnh là ảnh con vật, phong cảnh, đồ vật, selfie, hoặc tài liệu không phải CCCD: đặt "is_cccd": false và ghi rõ lý do vào "fraud_warnings".
+2. ${
+  backBuffer
+    ? 'Bạn được cung cấp CẢ 2 MẶT CỦA THẺ CCCD (Mặt trước và Mặt sau). BẮT BUỘC BÓC TÁCH ĐỦ 10/10 TRƯỜNG DỮ LIỆU SAU:'
+    : 'Bạn được cung cấp ẢNH MẶT TRƯỚC CCCD. Bóc tách tối đa 7 trường mặt trước:'
+}
+   - cccd_number: 12 chữ số định danh cá nhân (ở mặt trước)
+   - full_name: Họ và tên viết hoa có dấu đầy đủ (ví dụ: PHÙNG HẢI NAM)
    - date_of_birth: Ngày tháng năm sinh định dạng DD/MM/YYYY (ví dụ: 03/10/2004)
    - gender: "Nam" hoặc "Nữ"
    - nationality: "Việt Nam"
-   - place_of_origin: Quê quán đầy đủ (ví dụ: Phú Đông, Ba Vì, Hà Nội)
-   - place_of_residence: Nơi thường trú đầy đủ (ví dụ: Xóm Thuận Trại, Phú Đông, Ba Vì, Hà Nội)
-   - personal_identification: Đặc điểm nhận dạng từ mặt sau (nếu không có dị hình ghi "Không có dấu vết dị hình riêng biệt")
-   - issue_date: Ngày tháng năm cấp định dạng DD/MM/YYYY từ mặt sau (ví dụ: 20/07/2021)
-   - expiry_date: Ngày hết hạn DD/MM/YYYY hoặc "Không thời hạn"
-   - mrz_code: Dải mã máy ICAO 9303 gồm 3 dòng ở mặt sau nếu có (ví dụ: "IDVNM2040329002001204032900<<3\\n0410056M2910035VNM<<<<<<<<<<<4\\nPHUNG<<HAI<NAM<<<<<<<<<<<<<<<<")
+   - place_of_origin: Quê quán đầy đủ tiếng Việt có dấu (ở mặt trước, ví dụ: Phú Đông, Ba Vì, Hà Nội)
+   - place_of_residence: Nơi thường trú đầy đủ tiếng Việt có dấu (ở mặt trước, ví dụ: Xóm Thuận Trại, Phú Đông, Ba Vì, Hà Nội)
+   - personal_identification: Đặc điểm nhận dạng riêng biệt (ở MẶT SAU thẻ, ví dụ: "Không có" hoặc "Nốt ruồi cách 1cm dưới sau đuôi mắt trái". Nếu không có ghi "Không có dấu vết dị hình riêng biệt")
+   - issue_date: Ngày cấp thẻ định dạng DD/MM/YYYY (ở MẶT SAU thẻ, ví dụ: 20/07/2021)
+   - expiry_date: Ngày hết hạn DD/MM/YYYY hoặc "Không thời hạn" (ở mặt trước)
+   - mrz_code: Dải ký tự mã máy ICAO 9303 gồm 3 dòng ở đáy MẶT SAU thẻ (bắt đầu bằng IDVNM... ví dụ: "IDVNM2040329002001204032900<<3\\n0410056M2910035VNM<<<<<<<<<<<4\\nPHUNG<<HAI<NAM<<<<<<<<<<<<<<<<")
 
 Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau (không kèm markdown \`\`\`json):
 {
@@ -738,9 +748,11 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
   "personal_identification": "Không có dấu vết dị hình riêng biệt",
   "issue_date": "20/07/2021",
   "expiry_date": "03/10/2029",
-  "mrz_code": "..."
-}`,
-        },
+  "mrz_code": "IDVNM..."
+}`;
+
+      const parts: any[] = [
+        { text: promptText },
         {
           inlineData: {
             mimeType: 'image/jpeg',
@@ -758,34 +770,74 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
         });
       }
 
-      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // Danh sách các mô hình Flash theo thứ tự ưu tiên luân chuyển khi gặp 429 / 503 / Timeout
+      const candidateModels = [
+        process.env.GEMINI_MODEL,
+        'gemini-2.5-flash',
+        'gemini-1.5-flash',
+        'gemini-2.0-flash',
+      ].filter((m, idx, arr): m is string => Boolean(m) && arr.indexOf(m) === idx);
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.1,
-          },
-        }),
-        signal: AbortSignal.timeout(20000),
-      });
+      let parsed: any = null;
+      let rawOutput = '';
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.warn(`[Gemini Vision OCR] Lỗi HTTP ${response.status}: ${errorText}`);
-        return null;
+      for (const model of candidateModels) {
+        try {
+          this.logger.log(`[Gemini Vision OCR] Đang thử bóc tách với model: ${model}...`);
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                temperature: 0.1,
+              },
+            }),
+            signal: AbortSignal.timeout(15000), // 15s timeout cho mỗi model
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            this.logger.warn(
+              `[Gemini Vision OCR] Model ${model} phản hồi HTTP ${response.status}: ${errorText.slice(0, 150)}. Tự động chuyển model kế tiếp...`,
+            );
+            continue;
+          }
+
+          const resJson: any = await response.json();
+          rawOutput = resJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (!rawOutput) {
+            this.logger.warn(`[Gemini Vision OCR] Model ${model} không có nội dung text trả về.`);
+            continue;
+          }
+
+          // Cố gắng parse JSON với cơ chế làm sạch Markdown hoặc Regex
+          try {
+            const cleaned = rawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+            parsed = JSON.parse(cleaned);
+          } catch {
+            const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              parsed = JSON.parse(jsonMatch[0]);
+            }
+          }
+
+          if (parsed && typeof parsed === 'object') {
+            this.logger.log(`[Gemini Vision OCR] Model ${model} bóc tách thành công!`);
+            break;
+          }
+        } catch (err: any) {
+          this.logger.warn(`[Gemini Vision OCR] Model ${model} bị lỗi mạng/timeout: ${err.message}. Thử model kế tiếp...`);
+        }
       }
 
-      const resJson: any = await response.json();
-      const rawOutput = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawOutput) return null;
-
-      const cleaned = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      if (!parsed) {
+        this.logger.error('[Gemini Vision OCR] Tất cả các model Gemini Flash đều không phản hồi kết quả hợp lệ.');
+        return null;
+      }
 
       const warnings: string[] = Array.isArray(parsed.fraud_warnings) ? parsed.fraud_warnings : [];
       if (!parsed.is_cccd) {
@@ -816,7 +868,9 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
         warnings.push('Không đọc được số định danh cá nhân 12 chữ số trên ảnh');
       }
 
-      this.logger.log(`[Gemini Vision OCR] Bóc tách thành công 10 trường: CCCD=${extractedData.cccd_number}, Tên=${extractedData.full_name}`);
+      this.logger.log(
+        `[Gemini Vision OCR] Bóc tách hoàn tất: CCCD=${extractedData.cccd_number}, Tên=${extractedData.full_name}, Ngày sinh=${extractedData.date_of_birth}`,
+      );
 
       return {
         isAuthentic: warnings.length === 0,
@@ -824,7 +878,7 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
         fraudWarnings: warnings,
       };
     } catch (err: any) {
-      this.logger.error(`[Gemini Vision OCR] Ngoại lệ khi gọi Gemini: ${err.message}`);
+      this.logger.error(`[Gemini Vision OCR] Ngoại lệ tổng quát khi gọi Gemini: ${err.message}`);
       return null;
     }
   }
@@ -859,9 +913,12 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
     }
 
     // 7.2. Fallback sang Tesseract OCR + MRZ Parsing truyền thống
+    this.logger.warn('[OCR Pipeline] Đang kích hoạt bộ quét Tesseract CPU fallback...');
     const frontAnalysis = await this.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
     let backAnalysis: any = undefined;
-    const allWarnings: string[] = [];
+    const allWarnings: string[] = [
+      '⚠️ AI Gemini tạm thời bận hoặc quá tải, hệ thống đã dùng bộ quét OCR dự phòng. Hãy nhấn "Quét lại bằng AI" sau vài giây để trích xuất đầy đủ 10/10 trường.',
+    ];
 
     let frontRaw = frontAnalysis.rawText || '';
     let backRaw = '';
@@ -903,7 +960,7 @@ Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau
     }
 
     return {
-      isAuthentic: allWarnings.length === 0,
+      isAuthentic: allWarnings.length <= 1, // Chỉ có cảnh báo fallback AI thì vẫn cho phép tiếp tục
       extractedData: combinedData,
       fraudWarnings: allWarnings,
       frontAnalysis,
