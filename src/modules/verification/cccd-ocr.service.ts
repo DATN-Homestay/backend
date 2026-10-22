@@ -12,6 +12,9 @@ export interface ExtractedCccdData {
   place_of_origin?: string;
   place_of_residence?: string;
   expiry_date?: string;
+  personal_identification?: string;
+  issue_date?: string;
+  mrz_code?: string;
   raw_text?: string;
 }
 
@@ -101,7 +104,6 @@ const FAKE_SAMPLE_KEYWORDS = [
   'MẪU THỬ',
   'TEST CARD',
   'DEMO ONLY',
-  'SKIBIDI',
   'WATERMARK',
   'SHUTTERSTOCK',
   'FREEPIK',
@@ -111,45 +113,55 @@ const FAKE_SAMPLE_KEYWORDS = [
   'DOWNLOAD',
 ];
 
-// Từ khóa bảo chứng bắt buộc của thẻ CCCD mặt trước
+// Từ khóa bảo chứng bắt buộc của thẻ CCCD mặt trước (tối thiểu 2 cụm từ)
 const FRONT_CARD_REQUIRED_KEYWORDS = [
-  'CONG HOA',
-  'CỘNG HÒA',
-  'VIET NAM',
-  'VIỆT NAM',
-  'DOC LAP',
-  'ĐỘC LẬP',
-  'CAN CUOC',
-  'CĂN CƯỚC',
-  'CONG DAN',
-  'CÔNG DÂN',
-  'SO',
-  'SỐ',
-  'NO',
+  'CONG HOA XA HOI',
+  'CỘNG HÒA XÃ HỘI',
+  'DOC LAP TU DO',
+  'ĐỘC LẬP TỰ DO',
+  'CAN CUOC CONG DAN',
+  'CĂN CƯỚC CÔNG DÂN',
+  'THE CAN CUOC',
+  'THẺ CĂN CƯỚC',
+  'CITIZEN IDENTITY CARD',
   'HO VA TEN',
   'HỌ VÀ TÊN',
   'FULL NAME',
-  'CITIZEN',
-  'IDENTITY',
+  'NGAY SINH',
+  'NGÀY SINH',
+  'DATE OF BIRTH',
+  'GIOI TINH',
+  'GIỚI TÍNH',
+  'QUOC TICH',
+  'QUỐC TỊCH',
+  'QUE QUAN',
+  'QUÊ QUÁN',
+  'NOI THUONG TRU',
+  'NƠI THƯỜNG TRÚ',
+  'GIA TRI DEN',
+  'GIÁ TRỊ ĐẾN',
 ];
 
-// Từ khóa bảo chứng mặt sau
+// Từ khóa bảo chứng mặt sau (tối thiểu 1 cụm từ hoặc dải mã MRZ)
 const BACK_CARD_REQUIRED_KEYWORDS = [
-  'DAC DIEM',
-  'ĐẶC ĐIỂM',
+  'DAC DIEM NHAN DANG',
+  'ĐẶC ĐIỂM NHẬN DẠNG',
+  'DAU VET RIENG',
+  'DẤU VẾT RIÊNG',
+  'PERSONAL IDENTIFICATION',
   'NGON TRO',
   'NGÓN TRỎ',
-  'VAN TAY',
-  'VÂN TAY',
   'BO CONG AN',
   'BỘ CÔNG AN',
   'CUC CANH SAT',
   'CỤC CẢNH SÁT',
+  'NGAY THANG NAM',
+  'NGÀY THÁNG NĂM',
   'NGAY CAP',
   'NGÀY CẤP',
-  'DATE',
-  'CHIP',
-  '<<<',
+  'DIRECTOR GENERAL',
+  'IDVNM',
+  '<<',
 ];
 
 @Injectable()
@@ -166,7 +178,7 @@ export class CccdOcrService {
     gender?: 'Nam' | 'Nữ';
     error?: string;
   } {
-    const cleaned = cccdNumber.trim();
+    const cleaned = (cccdNumber || '').trim();
     if (!/^\d{12}$/.test(cleaned)) {
       return { isValid: false, error: 'Số CCCD phải gồm đúng 12 chữ số' };
     }
@@ -263,8 +275,7 @@ export class CccdOcrService {
       const localFilePath = path.join(uploadDir, cccdMatch[0]);
       if (fs.existsSync(localFilePath)) {
         this.logger.log(`[OCR Buffer] Đọc ảnh trực tiếp từ bộ nhớ đĩa: ${localFilePath}`);
-        const buffer = fs.readFileSync(localFilePath);
-        return buffer;
+        return fs.readFileSync(localFilePath);
       }
     }
 
@@ -275,7 +286,6 @@ export class CccdOcrService {
 
     // 2.3. URL mạng (Cloudinary, AWS S3, External HTTP/HTTPS)
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      // Nếu là URL trỏ về file nội bộ (chứa /api/v1/host/verify/files/)
       if (trimmed.includes('/files/')) {
         const parts = trimmed.split('/files/');
         if (parts[1]) {
@@ -315,11 +325,9 @@ export class CccdOcrService {
       }
     }
 
-    // Nếu không khớp URL nhưng là chuỗi base64 dài
     if (trimmed.length > 500 && /^[A-Za-z0-9+/=]+$/.test(trimmed.slice(0, 100))) {
       try {
-        const buffer = Buffer.from(trimmed, 'base64');
-        return buffer;
+        return Buffer.from(trimmed, 'base64');
       } catch {
         // bỏ qua
       }
@@ -329,7 +337,7 @@ export class CccdOcrService {
   }
 
   /**
-   * 3. Chuẩn hóa chuỗi tiếng Việt không dấu để so khớp
+   * 3. Chuẩn hóa chuỗi tiếng Việt không dấu để so khớp từ khóa
    */
   private normalizeString(text: string): string {
     return text
@@ -338,37 +346,192 @@ export class CccdOcrService {
       .replace(/đ/g, 'd')
       .replace(/Đ/g, 'D')
       .toUpperCase()
-      .replace(/[^A-Z0-9\s]/g, ' ')
+      .replace(/[^A-Z0-9\s<]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
   /**
-   * 4. Quét OCR và phân tích chống giả mạo trên ảnh thẻ
+   * 4. Bóc tách chi tiết các trường thông tin từ văn bản OCR của 2 mặt thẻ
+   */
+  parseCccdText(frontRawText: string, backRawText: string = ''): ExtractedCccdData {
+    const data: ExtractedCccdData = {
+      cccd_number: '',
+      full_name: '',
+      date_of_birth: '',
+      gender: '',
+      nationality: 'Việt Nam',
+      place_of_origin: '',
+      place_of_residence: '',
+      expiry_date: '',
+      personal_identification: '',
+      issue_date: '',
+      mrz_code: '',
+      raw_text: `${frontRawText}\n---\n${backRawText}`,
+    };
+
+    const frontLines = frontRawText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const backLines = backRawText.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    // 1. Số CCCD (12 chữ số)
+    const cccdMatch =
+      frontRawText.match(/\b\d{12}\b/) ||
+      frontRawText.match(/\b(\d{3})\s*(\d{1})\s*(\d{2})\s*(\d{6})\b/);
+    if (cccdMatch) {
+      data.cccd_number = cccdMatch[0].replace(/\s+/g, '');
+    }
+
+    // 2. Họ và tên
+    for (let i = 0; i < frontLines.length; i++) {
+      const line = frontLines[i];
+      if (/Họ và tên|Full name|Họ tên/i.test(line)) {
+        const parts = line.split(/(?:Full name|Họ và tên|Họ tên)[:\s]*/i);
+        const candidate = (parts[parts.length - 1] || '').trim();
+        if (candidate.length >= 3 && /^[A-ZÀ-Ỹ\s]+$/i.test(candidate)) {
+          data.full_name = candidate.toUpperCase();
+          break;
+        } else if (i + 1 < frontLines.length) {
+          const next = frontLines[i + 1].trim();
+          if (next.length >= 3 && /^[A-ZÀ-Ỹ\s]+$/i.test(next) && !/Ngày|Date|Sinh/i.test(next)) {
+            data.full_name = next.toUpperCase();
+            break;
+          }
+        }
+      }
+    }
+
+    // 3. Ngày sinh (DD/MM/YYYY)
+    const birthMatch =
+      frontRawText.match(/(?:Ngày sinh|Date of birth|Sinh ngày)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
+      frontRawText.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/);
+    if (birthMatch) {
+      data.date_of_birth = birthMatch[1].replace(/[\-\.]/g, '/');
+    }
+
+    // 4. Giới tính (Nam / Nữ)
+    if (/Giới tính.*Nam|Sex.*Nam|Sex.*M\b/i.test(frontRawText)) {
+      data.gender = 'Nam';
+    } else if (/Giới tính.*Nữ|Sex.*Female|Sex.*F\b/i.test(frontRawText)) {
+      data.gender = 'Nữ';
+    } else if (data.cccd_number && data.cccd_number.length === 12) {
+      const gCode = parseInt(data.cccd_number[3], 10);
+      data.gender = gCode % 2 === 0 ? 'Nam' : 'Nữ';
+    }
+
+    // 5. Quốc tịch
+    data.nationality = 'Việt Nam';
+
+    // 6. Quê quán
+    for (let i = 0; i < frontLines.length; i++) {
+      const line = frontLines[i];
+      if (/Quê quán|Place of origin/i.test(line)) {
+        const parts = line.split(/(?:Place of origin|Quê quán)[:\s]*/i);
+        let origin = (parts[parts.length - 1] || '').trim();
+        if (!origin && i + 1 < frontLines.length) {
+          origin = frontLines[i + 1].trim();
+        }
+        data.place_of_origin = origin;
+        break;
+      }
+    }
+
+    // 7. Nơi thường trú
+    for (let i = 0; i < frontLines.length; i++) {
+      const line = frontLines[i];
+      if (/Nơi thường trú|Place of residence/i.test(line)) {
+        const parts = line.split(/(?:Place of residence|Nơi thường trú)[:\s]*/i);
+        let residence = (parts[parts.length - 1] || '').trim();
+        if (!residence && i + 1 < frontLines.length) {
+          residence = frontLines[i + 1].trim();
+        }
+        data.place_of_residence = residence;
+        break;
+      }
+    }
+
+    // 8. Có giá trị đến (Hạn sử dụng)
+    const expMatch = frontRawText.match(/(?:Có giá trị đến|Date of expiry)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i);
+    if (expMatch) {
+      data.expiry_date = expMatch[1].replace(/[\-\.]/g, '/');
+    }
+
+    // 9. Đặc điểm nhận dạng (Mặt sau)
+    for (let i = 0; i < backLines.length; i++) {
+      const line = backLines[i];
+      if (/Đặc điểm nhận dạng|Personal identification/i.test(line)) {
+        const parts = line.split(/(?:Personal identification|Đặc điểm nhận dạng)[:\s]*/i);
+        let feat = (parts[parts.length - 1] || '').trim();
+        if (!feat && i + 1 < backLines.length) {
+          feat = backLines[i + 1].trim();
+        }
+        data.personal_identification = feat;
+        break;
+      }
+    }
+
+    // 10. Ngày cấp (Mặt sau)
+    const issueMatch =
+      backRawText.match(/(?:Ngày|Ngay)\s*(\d{1,2})\s*(?:tháng|thang)\s*(\d{1,2})\s*(?:năm|nam)\s*(\d{4})/i) ||
+      backRawText.match(/(?:Ngày cấp|Cấp ngày)[:\s/]*(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})/i) ||
+      backRawText.match(/\b(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})\b/);
+    if (issueMatch) {
+      if (issueMatch[3]) {
+        data.issue_date = `${issueMatch[1].padStart(2, '0')}/${issueMatch[2].padStart(2, '0')}/${issueMatch[3]}`;
+      } else {
+        data.issue_date = issueMatch[1].replace(/[\-\.]/g, '/');
+      }
+    }
+
+    // 11. Dải mã MRZ mặt sau (3 dòng ICAO 9303) hoặc mã số mặt sau
+    const mrzLines = backLines.filter((l) => l.includes('<<') || l.startsWith('IDVNM'));
+    if (mrzLines.length > 0) {
+      data.mrz_code = mrzLines.join('\n');
+      if (!data.cccd_number) {
+        const mrzCccd = data.mrz_code.match(/IDVNM(\d{12})/);
+        if (mrzCccd) data.cccd_number = mrzCccd[1];
+      }
+    } else {
+      const backCodeMatch = backRawText.match(/[A-Z0-9]{8,20}/);
+      if (backCodeMatch) {
+        data.mrz_code = backCodeMatch[0];
+      }
+    }
+
+    return data;
+  }
+
+  /**
+   * 5. Quét OCR và phân tích chống giả mạo trên ảnh thẻ (Mặt trước / Mặt sau)
    */
   async scanAndAnalyzeCccd(
     imageUrl: string,
     side: 'FRONT' | 'BACK',
   ): Promise<{
     rawText: string;
-    extractedCccd?: string;
-    extractedName?: string;
-    extractedBirthDate?: string;
+    extractedData: ExtractedCccdData;
     isAuthentic: boolean;
     fraudWarnings: string[];
   }> {
     const buffer = await this.fetchImageBuffer(imageUrl);
     const fraudWarnings: string[] = [];
 
-    // Chạy nhận diện OCR bằng Tesseract.js
+    // Chạy nhận diện OCR bằng Tesseract.js (sử dụng vie+eng)
     let ocrResultText = '';
     try {
-      const ocrOutput = await Tesseract.recognize(buffer, 'eng', {
+      const ocrOutput = await Tesseract.recognize(buffer, 'vie+eng', {
         logger: () => {},
       });
       ocrResultText = ocrOutput?.data?.text || '';
-    } catch (err: any) {
-      this.logger.warn(`Lỗi OCR Tesseract: ${err.message}`);
+    } catch {
+      // Fallback về eng nếu vie gặp sự cố
+      try {
+        const ocrOutputEng = await Tesseract.recognize(buffer, 'eng', {
+          logger: () => {},
+        });
+        ocrResultText = ocrOutputEng?.data?.text || '';
+      } catch (err: any) {
+        this.logger.warn(`Lỗi OCR Tesseract: ${err.message}`);
+      }
     }
 
     const normalizedText = this.normalizeString(ocrResultText);
@@ -380,86 +543,107 @@ export class CccdOcrService {
       }
     }
 
-    // B. Kiểm tra sự hiện diện của từ khóa bảo chứng Căn Cước Công Dân
-    const requiredKeywords =
-      side === 'FRONT' ? FRONT_CARD_REQUIRED_KEYWORDS : BACK_CARD_REQUIRED_KEYWORDS;
+    // B. Bóc tách dữ liệu
+    const extractedData = this.parseCccdText(
+      side === 'FRONT' ? ocrResultText : '',
+      side === 'BACK' ? ocrResultText : '',
+    );
 
-    const matchedKeywords = requiredKeywords.filter((kw) => normalizedText.includes(kw));
-
-    // Nếu không khớp từ khóa đặc trưng nào -> Không phải ảnh CCCD
-    if (matchedKeywords.length === 0) {
-      fraudWarnings.push(
-        side === 'FRONT'
-          ? 'Ảnh mặt trước không chứa các thông tin đặc trưng của thẻ Căn cước công dân Việt Nam (Không tìm thấy quốc hiệu hoặc tiêu đề thẻ)'
-          : 'Ảnh mặt sau không chứa các đặc trưng nhận dạng của thẻ CCCD (Dấu vân tay, dải mã hoặc con chip)',
+    // C. KIỂM SOÁT TÍNH CHÍNH XÁC & BẢO CHỨNG THEO TỪNG MẶT THẺ
+    if (side === 'FRONT') {
+      const matchedKeywords = FRONT_CARD_REQUIRED_KEYWORDS.filter((kw) =>
+        normalizedText.includes(kw),
       );
-    }
 
-    // C. Bóc tách số CCCD (12 chữ số) trên ảnh mặt trước
-    let extractedCccd: string | undefined;
-    if (side === 'FRONT') {
-      // Tìm dãy 12 số liên tiếp
-      const cccdMatch = normalizedText.match(/\b\d{12}\b/);
-      if (cccdMatch) {
-        extractedCccd = cccdMatch[0];
+      // Ảnh mặt trước phải khớp tối thiểu 2 từ khóa đặc trưng của Quốc hiệu/CCCD
+      if (matchedKeywords.length < 2) {
+        fraudWarnings.push(
+          'Ảnh mặt trước không chứa các thông tin đặc trưng của thẻ Căn cước công dân Việt Nam (Thiếu Quốc hiệu, tiêu đề thẻ CCCD hoặc các mục định danh)',
+        );
+      }
+
+      // BẮT BUỘC: Ảnh mặt trước phải đọc được số CCCD 12 số hợp lệ
+      if (!extractedData.cccd_number) {
+        fraudWarnings.push(
+          'Không tìm thấy số Căn cước công dân (12 chữ số) hợp lệ trên ảnh. Ảnh không phải là mặt trước CCCD hoặc ảnh quá mờ!',
+        );
       } else {
-        // Tìm dãy số có khoảng trắng ở giữa (VD: 038 099 001234)
-        const spacedMatch = normalizedText.match(/\b(\d{3})\s*(\d{1})\s*(\d{2})\s*(\d{6})\b/);
-        if (spacedMatch) {
-          extractedCccd = `${spacedMatch[1]}${spacedMatch[2]}${spacedMatch[3]}${spacedMatch[4]}`;
+        const structCheck = this.validateCccdStructure(extractedData.cccd_number);
+        if (!structCheck.isValid) {
+          fraudWarnings.push(`Số CCCD trích xuất (${extractedData.cccd_number}) không hợp lệ: ${structCheck.error}`);
         }
       }
-    }
+    } else {
+      // Mặt sau: Phải khớp ít nhất 1 đặc trưng của mặt sau
+      const matchedBackKeywords = BACK_CARD_REQUIRED_KEYWORDS.filter((kw) =>
+        normalizedText.includes(kw),
+      );
 
-    // D. Bóc tách Họ và Tên (dòng chữ hoa sau 'HO VA TEN' hoặc 'FULL NAME')
-    let extractedName: string | undefined;
-    if (side === 'FRONT') {
-      const lines = ocrResultText.split('\n').map((l) => l.trim()).filter(Boolean);
-      for (let i = 0; i < lines.length; i++) {
-        const normLine = this.normalizeString(lines[i]);
-        if (
-          normLine.includes('HO VA TEN') ||
-          normLine.includes('FULL NAME') ||
-          normLine.includes('HO TEN')
-        ) {
-          // Họ tên thường nằm cùng dòng hoặc dòng tiếp theo
-          const afterKeyword = normLine
-            .replace(/.*HO VA TEN[:\s]*/, '')
-            .replace(/.*FULL NAME[:\s]*/, '')
-            .trim();
-          if (afterKeyword.length >= 3 && /^[A-Z\s]+$/.test(afterKeyword)) {
-            extractedName = afterKeyword;
-            break;
-          } else if (i + 1 < lines.length) {
-            const nextLineNorm = this.normalizeString(lines[i + 1]);
-            if (nextLineNorm.length >= 3 && /^[A-Z\s]+$/.test(nextLineNorm)) {
-              extractedName = nextLineNorm;
-              break;
-            }
-          }
-        }
+      const hasBackFeatures =
+        matchedBackKeywords.length > 0 ||
+        Boolean(extractedData.personal_identification) ||
+        Boolean(extractedData.issue_date) ||
+        Boolean(extractedData.mrz_code);
+
+      if (!hasBackFeatures) {
+        fraudWarnings.push(
+          'Ảnh không phải là mặt sau thẻ Căn cước công dân (Không tìm thấy đặc điểm nhận dạng, ngày cấp, con chip hoặc dải mã MRZ)',
+        );
       }
-    }
-
-    // E. Bóc tách ngày sinh (DD/MM/YYYY)
-    let extractedBirthDate: string | undefined;
-    const dateMatch = normalizedText.match(/\b(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})\b/);
-    if (dateMatch) {
-      extractedBirthDate = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
     }
 
     return {
       rawText: ocrResultText,
-      extractedCccd,
-      extractedName,
-      extractedBirthDate,
+      extractedData,
       isAuthentic: fraudWarnings.length === 0,
       fraudWarnings,
     };
   }
 
   /**
-   * 5. Toàn bộ quy trình thẩm định eKYC chống giả mạo toàn diện
+   * 6. Quét đồng thời cả 2 mặt và bóc tách đầy đủ 10 trường thông tin CCCD
+   */
+  async scanBothSides(frontImageUrl: string, backImageUrl?: string): Promise<{
+    isAuthentic: boolean;
+    extractedData: ExtractedCccdData;
+    fraudWarnings: string[];
+    frontAnalysis: any;
+    backAnalysis?: any;
+  }> {
+    const frontAnalysis = await this.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
+    let backAnalysis: any = undefined;
+    const allWarnings = [...frontAnalysis.fraudWarnings];
+
+    let combinedData: ExtractedCccdData = { ...frontAnalysis.extractedData };
+
+    if (backImageUrl) {
+      if (frontImageUrl.trim() === backImageUrl.trim()) {
+        allWarnings.push('Ảnh mặt trước và mặt sau thẻ CCCD không được trùng lặp một ảnh!');
+      } else {
+        backAnalysis = await this.scanAndAnalyzeCccd(backImageUrl, 'BACK');
+        allWarnings.push(...backAnalysis.fraudWarnings);
+
+        // Gộp kết quả bóc tách từ mặt sau
+        combinedData = {
+          ...combinedData,
+          personal_identification: backAnalysis.extractedData?.personal_identification || combinedData.personal_identification,
+          issue_date: backAnalysis.extractedData?.issue_date || combinedData.issue_date,
+          mrz_code: backAnalysis.extractedData?.mrz_code || combinedData.mrz_code,
+        };
+      }
+    }
+
+    return {
+      isAuthentic: allWarnings.length === 0,
+      extractedData: combinedData,
+      fraudWarnings: allWarnings,
+      frontAnalysis,
+      backAnalysis,
+    };
+  }
+
+  /**
+   * 7. Toàn bộ quy trình thẩm định eKYC chống giả mạo toàn diện khi Submit
    */
   async verifyFullCccdPipeline(data: {
     front_image_url: string;
@@ -472,6 +656,7 @@ export class CccdOcrService {
     backAnalysis: any;
     matchedCccd: boolean;
     matchedName: boolean;
+    extractedData: ExtractedCccdData;
   }> {
     // 1. Kiểm tra 2 mặt không được trùng nhau
     if (data.front_image_url.trim() === data.back_image_url.trim()) {
@@ -487,10 +672,10 @@ export class CccdOcrService {
     }
 
     this.logger.log(
-      `[eKYC OCR] Bắt đầu quét & kiểm tra ảnh CCCD: Số ${data.cccd_number} (Tỉnh: ${structCheck.provinceName}, Sinh năm: ${structCheck.birthYear})`,
+      `[eKYC OCR] Bắt đầu thẩm định thẻ CCCD Số ${data.cccd_number} (Tỉnh: ${structCheck.provinceName}, Sinh năm: ${structCheck.birthYear})`,
     );
 
-    // 3. Quét OCR và phân tích chống giả ảnh Mặt Trước
+    // 3. Quét OCR và kiểm tra tính nguyên bản ảnh Mặt Trước
     const frontAnalysis = await this.scanAndAnalyzeCccd(data.front_image_url, 'FRONT');
     if (!frontAnalysis.isAuthentic) {
       throw new BadRequestException(
@@ -498,7 +683,7 @@ export class CccdOcrService {
       );
     }
 
-    // 4. Quét OCR và phân tích chống giả ảnh Mặt Sau
+    // 4. Quét OCR và kiểm tra tính nguyên bản ảnh Mặt Sau
     const backAnalysis = await this.scanAndAnalyzeCccd(data.back_image_url, 'BACK');
     if (!backAnalysis.isAuthentic) {
       throw new BadRequestException(
@@ -506,36 +691,46 @@ export class CccdOcrService {
       );
     }
 
-    // 5. So khớp số CCCD nếu OCR trích xuất được từ ảnh
-    let matchedCccd = true;
-    if (frontAnalysis.extractedCccd) {
-      if (frontAnalysis.extractedCccd !== data.cccd_number.trim()) {
+    // 5. So khớp số CCCD: Nếu trích xuất được số CCCD trên ảnh mặt trước thì bắt buộc phải trùng khớp
+    const extractedCccd = frontAnalysis.extractedData?.cccd_number;
+    if (extractedCccd) {
+      if (extractedCccd !== data.cccd_number.trim()) {
         throw new BadRequestException(
-          `Cảnh báo giả mạo: Số CCCD quét được trên ảnh (${frontAnalysis.extractedCccd}) không trùng khớp với số CCCD bạn khai báo (${data.cccd_number})!`,
+          `Cảnh báo sai lệch: Số CCCD nhận diện trên ảnh (${extractedCccd}) không trùng khớp với số CCCD bạn khai báo (${data.cccd_number})!`,
         );
       }
     }
 
-    // 6. So khớp họ tên nếu OCR trích xuất được từ ảnh
-    let matchedName = true;
-    if (frontAnalysis.extractedName) {
+    // 6. So khớp họ tên: Nếu nhận diện được họ tên trên ảnh thì phải tương đồng
+    const extractedName = frontAnalysis.extractedData?.full_name;
+    if (extractedName) {
       const normalizedInputName = this.normalizeString(data.full_name);
+      const normalizedExtractedName = this.normalizeString(extractedName);
       const isIncluded =
-        frontAnalysis.extractedName.includes(normalizedInputName) ||
-        normalizedInputName.includes(frontAnalysis.extractedName);
+        normalizedExtractedName.includes(normalizedInputName) ||
+        normalizedInputName.includes(normalizedExtractedName);
       if (!isIncluded) {
         throw new BadRequestException(
-          `Cảnh báo giả mạo: Họ tên nhận diện trên ảnh thẻ (${frontAnalysis.extractedName}) không trùng khớp với tên khai báo (${data.full_name})!`,
+          `Cảnh báo sai lệch: Họ tên nhận diện trên ảnh (${extractedName}) không trùng khớp với tên khai báo (${data.full_name})!`,
         );
       }
     }
+
+    // 7. Hợp nhất toàn bộ 10 trường dữ liệu
+    const fullExtractedData: ExtractedCccdData = {
+      ...frontAnalysis.extractedData,
+      personal_identification: backAnalysis.extractedData?.personal_identification,
+      issue_date: backAnalysis.extractedData?.issue_date,
+      mrz_code: backAnalysis.extractedData?.mrz_code,
+    };
 
     return {
       passed: true,
       frontAnalysis,
       backAnalysis,
-      matchedCccd,
-      matchedName,
+      matchedCccd: true,
+      matchedName: true,
+      extractedData: fullExtractedData,
     };
   }
 }

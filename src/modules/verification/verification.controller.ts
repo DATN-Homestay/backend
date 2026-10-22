@@ -117,15 +117,23 @@ export class VerificationController {
   }
 
   /**
-   * Quét thử OCR và phân tích chống giả trên ảnh mặt trước CCCD
+   * Quét thử OCR và phân tích chống giả trên ảnh CCCD (Mặt trước / Mặt sau)
    */
   @Post('cccd/scan-ocr')
-  async scanCccdOcr(@Body() body: { image_url?: string; image_base64?: string }) {
-    const target = body?.image_base64 || body?.image_url;
-    if (!target) {
-      throw new BadRequestException('Vui lòng cung cấp image_url hoặc image_base64 để quét OCR');
+  async scanCccdOcr(
+    @Body()
+    body: {
+      image_url?: string;
+      image_base64?: string;
+      front_image_url?: string;
+      back_image_url?: string;
+    },
+  ) {
+    const front = body?.front_image_url || body?.image_base64 || body?.image_url;
+    if (!front) {
+      throw new BadRequestException('Vui lòng cung cấp ảnh mặt trước CCCD để quét OCR');
     }
-    const data = await this.verificationService.scanCccdOcr(target);
+    const data = await this.verificationService.scanCccdOcr(front, body?.back_image_url);
     return {
       statusCode: 200,
       data,

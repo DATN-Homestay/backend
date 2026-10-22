@@ -226,20 +226,21 @@ export class VerificationService {
   // ==========================================
 
   /**
-   * Quét OCR nhanh mặt trước thẻ CCCD để tự động điền thông tin và kiểm tra chống giả
+   * Quét OCR bóc tách toàn bộ 10 trường thông tin CCCD (mặt trước & mặt sau) và phân tích chống giả
    */
-  async scanCccdOcr(frontImageUrl: string) {
+  async scanCccdOcr(frontImageUrl: string, backImageUrl?: string) {
     if (!frontImageUrl) {
       throw new BadRequestException('Vui lòng cung cấp URL ảnh mặt trước CCCD để quét');
     }
-    const analysis = await this.cccdOcrService.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
+    const result = await this.cccdOcrService.scanBothSides(frontImageUrl, backImageUrl);
     return {
-      is_authentic: analysis.isAuthentic,
-      extracted_cccd: analysis.extractedCccd,
-      extracted_name: analysis.extractedName,
-      extracted_birth_date: analysis.extractedBirthDate,
-      fraud_warnings: analysis.fraudWarnings,
-      raw_text: analysis.rawText,
+      is_authentic: result.isAuthentic,
+      fraud_warnings: result.fraudWarnings,
+      extracted_data: result.extractedData,
+      extracted_cccd: result.extractedData?.cccd_number,
+      extracted_name: result.extractedData?.full_name,
+      extracted_birth_date: result.extractedData?.date_of_birth,
+      raw_text: result.frontAnalysis?.rawText,
     };
   }
 
@@ -335,11 +336,7 @@ export class VerificationService {
       score_earned: scoreEarned,
       total_score: claim.trust_score,
       cccd_verified: true,
-      extracted_data: {
-        cccd_number: ocrResult.frontAnalysis?.extractedCccd || dto.cccd_number,
-        full_name: ocrResult.frontAnalysis?.extractedName || dto.full_name,
-        birth_date: ocrResult.frontAnalysis?.extractedBirthDate,
-      },
+      extracted_data: ocrResult.extractedData,
       message:
         'Thẩm định thẻ CCCD qua hệ thống OCR & Anti-spoofing thành công (Xác thực phôi thẻ thật). Dữ liệu đã được mã hóa AES-256 an toàn.',
     };
