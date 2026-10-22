@@ -1,4 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import Tesseract from 'tesseract.js';
 
 export interface ExtractedCccdData {
@@ -227,26 +229,103 @@ export class CccdOcrService {
   }
 
   /**
-   * 2. Tải và nạp dữ liệu ảnh từ URL sang Buffer
+   * 2. Tải và nạp dữ liệu ảnh từ URL, Base64 hoặc File cục bộ sang Buffer
    */
-  async fetchImageBuffer(url: string): Promise<Buffer> {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      if (!response.ok) {
-        throw new BadRequestException(`Không thể tải ảnh từ URL: HTTP ${response.status}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      if (buffer.length < 15 * 1024) {
-        throw new BadRequestException('Ảnh tải lên có dung lượng quá nhỏ (< 15KB), không đạt chuẩn ảnh CCCD');
-      }
-
-      return buffer;
-    } catch (err: any) {
-      this.logger.error(`Lỗi tải ảnh từ URL ${url}: ${err.message}`);
-      throw new BadRequestException(`Lỗi khi phân tích ảnh: ${err.message || 'Không thể đọc tệp ảnh'}`);
+  async fetchImageBuffer(urlOrBase64: string): Promise<Buffer> {
+    if (!urlOrBase64 || typeof urlOrBase64 !== 'string') {
+      throw new BadRequestException('Dữ liệu ảnh không hợp lệ (chuỗi trống)');
     }
+
+    const trimmed = urlOrBase64.trim();
+
+    // 2.1. Dữ liệu base64 (Data URI hoặc chuỗi base64 thuần)
+    if (
+      trimmed.startsWith('data:image/') ||
+      trimmed.startsWith('data:application/octet-stream') ||
+      trimmed.startsWith('data:;base64,')
+    ) {
+      try {
+        const base64Data = trimmed.includes(',') ? trimmed.split(',')[1] : trimmed;
+        const buffer = Buffer.from(base64Data, 'base64');
+        if (buffer.length < 5 * 1024) {
+          throw new BadRequestException('Ảnh tải lên có dung lượng quá nhỏ (< 5KB), không đạt chuẩn ảnh CCCD');
+        }
+        return buffer;
+      } catch (err: any) {
+        throw new BadRequestException(`Lỗi giải mã ảnh base64: ${err.message}`);
+      }
+    }
+
+    // 2.2. Kiểm tra file cục bộ trong thư mục uploads/cccd/
+    const uploadDir = path.resolve(process.cwd(), 'uploads', 'cccd');
+    const cccdMatch = trimmed.match(/cccd_[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)/i);
+    if (cccdMatch) {
+      const localFilePath = path.join(uploadDir, cccdMatch[0]);
+      if (fs.existsSync(localFilePath)) {
+        this.logger.log(`[OCR Buffer] Đọc ảnh trực tiếp từ bộ nhớ đĩa: ${localFilePath}`);
+        const buffer = fs.readFileSync(localFilePath);
+        return buffer;
+      }
+    }
+
+    if (fs.existsSync(trimmed)) {
+      this.logger.log(`[OCR Buffer] Đọc ảnh từ file path: ${trimmed}`);
+      return fs.readFileSync(trimmed);
+    }
+
+    // 2.3. URL mạng (Cloudinary, AWS S3, External HTTP/HTTPS)
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      // Nếu là URL trỏ về file nội bộ (chứa /api/v1/host/verify/files/)
+      if (trimmed.includes('/files/')) {
+        const parts = trimmed.split('/files/');
+        if (parts[1]) {
+          const fname = path.basename(parts[1].split('?')[0]);
+          const localPath = path.join(uploadDir, fname);
+          if (fs.existsSync(localPath)) {
+            this.logger.log(`[OCR Buffer] Đọc ảnh cục bộ từ URL nội bộ: ${localPath}`);
+            return fs.readFileSync(localPath);
+          }
+        }
+      }
+
+      try {
+        const response = await fetch(trimmed, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) StayAI/1.0',
+            Accept: 'image/*,*/*',
+          },
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (!response.ok) {
+          throw new BadRequestException(`Không thể tải ảnh từ URL: HTTP ${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        if (buffer.length < 5 * 1024) {
+          throw new BadRequestException('Ảnh tải về có dung lượng quá nhỏ (< 5KB), không đạt chuẩn ảnh CCCD');
+        }
+
+        return buffer;
+      } catch (err: any) {
+        this.logger.error(`Lỗi tải ảnh từ URL ${trimmed}: ${err.message}`);
+        throw new BadRequestException(`Lỗi khi tải ảnh để phân tích: ${err.message || 'Không thể đọc tệp ảnh từ URL'}`);
+      }
+    }
+
+    // Nếu không khớp URL nhưng là chuỗi base64 dài
+    if (trimmed.length > 500 && /^[A-Za-z0-9+/=]+$/.test(trimmed.slice(0, 100))) {
+      try {
+        const buffer = Buffer.from(trimmed, 'base64');
+        return buffer;
+      } catch {
+        // bỏ qua
+      }
+    }
+
+    throw new BadRequestException('Định dạng ảnh hoặc URL không hợp lệ');
   }
 
   /**

@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { VerificationService } from './verification.service.js';
+import { UploadService } from '../upload/upload.service.js';
 import { VerifyCccdDto } from './dto/verify-cccd.dto.js';
 import { SendOtpDto } from './dto/send-otp.dto.js';
 import { CheckOtpDto } from './dto/check-otp.dto.js';
@@ -30,7 +31,10 @@ import { RoleType } from '../users/entities/role.entity.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(RoleType.HOST, RoleType.ADMIN)
 export class VerificationController {
-  constructor(private readonly verificationService: VerificationService) {}
+  constructor(
+    private readonly verificationService: VerificationService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   private getHostId(req: any): string {
     return String(req.user?.id || req.user?.sub || (req.headers['x-user-id'] as string) || '1');
@@ -64,12 +68,24 @@ export class VerificationController {
     const filePath = path.join(uploadDir, fileName);
     fs.writeFileSync(filePath, file.buffer);
 
+    let finalImageUrl = `/api/v1/host/verify/files/${fileName}`;
+    try {
+      if (process.env.CLOUDINARY_CLOUD_NAME) {
+        const cloudResult = await this.uploadService.uploadFile(file, 'stayai/cccd');
+        if (cloudResult?.url) {
+          finalImageUrl = cloudResult.url;
+        }
+      }
+    } catch {
+      // Giữ local file url nếu Cloudinary lỗi
+    }
+
     return {
       statusCode: 200,
       message: 'Tải ảnh CCCD thành công',
       data: {
         file_name: fileName,
-        image_url: `/api/v1/host/verify/files/${fileName}`,
+        image_url: finalImageUrl,
       },
     };
   }
@@ -104,11 +120,12 @@ export class VerificationController {
    * Quét thử OCR và phân tích chống giả trên ảnh mặt trước CCCD
    */
   @Post('cccd/scan-ocr')
-  async scanCccdOcr(@Body() body: { image_url: string }) {
-    if (!body?.image_url) {
-      throw new BadRequestException('Vui lòng cung cấp image_url để quét OCR');
+  async scanCccdOcr(@Body() body: { image_url?: string; image_base64?: string }) {
+    const target = body?.image_base64 || body?.image_url;
+    if (!target) {
+      throw new BadRequestException('Vui lòng cung cấp image_url hoặc image_base64 để quét OCR');
     }
-    const data = await this.verificationService.scanCccdOcr(body.image_url);
+    const data = await this.verificationService.scanCccdOcr(target);
     return {
       statusCode: 200,
       data,
