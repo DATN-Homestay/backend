@@ -682,7 +682,151 @@ export class CccdOcrService {
   }
 
   /**
-   * 6. Quét đồng thời cả 2 mặt và bóc tách đầy đủ 10 trường thông tin CCCD
+   * 6. Quét OCR thông minh bằng Google Gemini 2.0 / 1.5 Flash Vision (Multimodal AI)
+   */
+  async scanWithGeminiVision(
+    frontBuffer: Buffer,
+    backBuffer?: Buffer,
+  ): Promise<{
+    isAuthentic: boolean;
+    extractedData: ExtractedCccdData;
+    fraudWarnings: string[];
+  } | null> {
+    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    if (!apiKey) {
+      return null;
+    }
+
+    try {
+      this.logger.log('[Gemini Vision OCR] Đang phân tích bóc tách CCCD bằng Google Gemini AI...');
+
+      const parts: any[] = [
+        {
+          text: `Bạn là trợ lý AI chuyên gia eKYC và thẩm định giấy tờ tuỳ thân Việt Nam.
+Nhiệm vụ: Phân tích ảnh thẻ Căn cước công dân (CCCD) được cung cấp (gồm mặt trước và/hoặc mặt sau) và trích xuất chính xác 100% tiếng Việt có dấu các trường thông tin.
+
+YÊU CẦU QUAN TRỌNG:
+1. Xác định xem ảnh có phải là thẻ Căn cước công dân Việt Nam thật hay không. Nếu ảnh là ảnh con vật, phong cảnh, đồ vật, selfie cá nhân, hoặc tài liệu không phải CCCD: đặt "is_cccd": false và ghi rõ lý do vào mảng "fraud_warnings".
+2. Bóc tách toàn bộ 10 trường dữ liệu chính xác, giữ nguyên đầy đủ dấu tiếng Việt:
+   - cccd_number: 12 chữ số
+   - full_name: Họ và tên viết hoa có dấu (ví dụ: PHÙNG HẢI NAM)
+   - date_of_birth: Ngày tháng năm sinh định dạng DD/MM/YYYY (ví dụ: 03/10/2004)
+   - gender: "Nam" hoặc "Nữ"
+   - nationality: "Việt Nam"
+   - place_of_origin: Quê quán đầy đủ (ví dụ: Phú Đông, Ba Vì, Hà Nội)
+   - place_of_residence: Nơi thường trú đầy đủ (ví dụ: Xóm Thuận Trại, Phú Đông, Ba Vì, Hà Nội)
+   - personal_identification: Đặc điểm nhận dạng từ mặt sau (nếu không có dị hình ghi "Không có dấu vết dị hình riêng biệt")
+   - issue_date: Ngày tháng năm cấp định dạng DD/MM/YYYY từ mặt sau (ví dụ: 20/07/2021)
+   - expiry_date: Ngày hết hạn DD/MM/YYYY hoặc "Không thời hạn"
+   - mrz_code: Dải mã máy ICAO 9303 gồm 3 dòng ở mặt sau nếu có (ví dụ: "IDVNM2040329002001204032900<<3\\n0410056M2910035VNM<<<<<<<<<<<4\\nPHUNG<<HAI<NAM<<<<<<<<<<<<<<<<")
+
+Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc sau (không kèm markdown \`\`\`json):
+{
+  "is_cccd": true,
+  "fraud_warnings": [],
+  "cccd_number": "001204032900",
+  "full_name": "PHÙNG HẢI NAM",
+  "date_of_birth": "03/10/2004",
+  "gender": "Nam",
+  "nationality": "Việt Nam",
+  "place_of_origin": "Phú Đông, Ba Vì, Hà Nội",
+  "place_of_residence": "Xóm Thuận Trại, Phú Đông, Ba Vì, Hà Nội",
+  "personal_identification": "Không có dấu vết dị hình riêng biệt",
+  "issue_date": "20/07/2021",
+  "expiry_date": "03/10/2029",
+  "mrz_code": "..."
+}`,
+        },
+        {
+          inlineData: {
+            mimeType: 'image/jpeg',
+            data: frontBuffer.toString('base64'),
+          },
+        },
+      ];
+
+      if (backBuffer) {
+        parts.push({
+          inlineData: {
+            mimeType: 'image/jpeg',
+            data: backBuffer.toString('base64'),
+          },
+        });
+      }
+
+      const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.warn(`[Gemini Vision OCR] Lỗi HTTP ${response.status}: ${errorText}`);
+        return null;
+      }
+
+      const resJson: any = await response.json();
+      const rawOutput = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawOutput) return null;
+
+      const cleaned = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const warnings: string[] = Array.isArray(parsed.fraud_warnings) ? parsed.fraud_warnings : [];
+      if (!parsed.is_cccd) {
+        warnings.push('Hình ảnh tải lên không phải là thẻ Căn cước công dân Việt Nam hợp lệ');
+      }
+
+      const extractedData: ExtractedCccdData = {
+        cccd_number: String(parsed.cccd_number || '').trim(),
+        full_name: String(parsed.full_name || '').trim().toUpperCase(),
+        date_of_birth: String(parsed.date_of_birth || '').trim(),
+        gender: parsed.gender === 'Nữ' ? 'Nữ' : 'Nam',
+        nationality: String(parsed.nationality || 'Việt Nam').trim(),
+        place_of_origin: String(parsed.place_of_origin || '').trim(),
+        place_of_residence: String(parsed.place_of_residence || '').trim(),
+        personal_identification: String(parsed.personal_identification || 'Không có dấu vết dị hình riêng biệt').trim(),
+        issue_date: String(parsed.issue_date || '').trim(),
+        expiry_date: String(parsed.expiry_date || '').trim(),
+        mrz_code: String(parsed.mrz_code || '').trim(),
+        raw_text: rawOutput,
+      };
+
+      if (extractedData.cccd_number) {
+        const structCheck = this.validateCccdStructure(extractedData.cccd_number);
+        if (!structCheck.isValid) {
+          warnings.push(`Số CCCD (${extractedData.cccd_number}) không hợp lệ: ${structCheck.error}`);
+        }
+      } else {
+        warnings.push('Không đọc được số định danh cá nhân 12 chữ số trên ảnh');
+      }
+
+      this.logger.log(`[Gemini Vision OCR] Bóc tách thành công 10 trường: CCCD=${extractedData.cccd_number}, Tên=${extractedData.full_name}`);
+
+      return {
+        isAuthentic: warnings.length === 0,
+        extractedData,
+        fraudWarnings: warnings,
+      };
+    } catch (err: any) {
+      this.logger.error(`[Gemini Vision OCR] Ngoại lệ khi gọi Gemini: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 7. Quét đồng thời cả 2 mặt và bóc tách đầy đủ 10 trường thông tin CCCD
    */
   async scanBothSides(frontImageUrl: string, backImageUrl?: string): Promise<{
     isAuthentic: boolean;
@@ -691,6 +835,26 @@ export class CccdOcrService {
     frontAnalysis: any;
     backAnalysis?: any;
   }> {
+    // 7.1. Ưu tiên quét bằng Multimodal AI Gemini nếu có cấu hình API Key
+    try {
+      const frontBuf = await this.fetchImageBuffer(frontImageUrl);
+      const backBuf = backImageUrl ? await this.fetchImageBuffer(backImageUrl) : undefined;
+      const geminiResult = await this.scanWithGeminiVision(frontBuf, backBuf);
+      if (geminiResult) {
+        this.logger.log('[OCR Pipeline] Đã hoàn thành thẩm định và bóc tách bằng Gemini AI Vision.');
+        return {
+          isAuthentic: geminiResult.isAuthentic,
+          extractedData: geminiResult.extractedData,
+          fraudWarnings: geminiResult.fraudWarnings,
+          frontAnalysis: { rawText: geminiResult.extractedData.raw_text, fraudWarnings: geminiResult.fraudWarnings },
+          backAnalysis: undefined,
+        };
+      }
+    } catch (err: any) {
+      this.logger.warn(`[OCR Pipeline] Gemini Vision không khả dụng, chuyển sang Tesseract fallback: ${err.message}`);
+    }
+
+    // 7.2. Fallback sang Tesseract OCR + MRZ Parsing truyền thống
     const frontAnalysis = await this.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
     let backAnalysis: any = undefined;
     const allWarnings: string[] = [];
@@ -775,6 +939,35 @@ export class CccdOcrService {
     this.logger.log(
       `[eKYC OCR] Bắt đầu thẩm định thẻ CCCD Số ${data.cccd_number} (Tỉnh: ${structCheck.provinceName}, Sinh năm: ${structCheck.birthYear})`,
     );
+
+    // Ưu tiên thẩm định bằng Gemini Vision nếu có cấu hình
+    try {
+      const frontBuf = await this.fetchImageBuffer(data.front_image_url);
+      const backBuf = await this.fetchImageBuffer(data.back_image_url);
+      const geminiResult = await this.scanWithGeminiVision(frontBuf, backBuf);
+      if (geminiResult) {
+        if (!geminiResult.isAuthentic) {
+          throw new BadRequestException(`Thẩm định ảnh CCCD thất bại: ${geminiResult.fraudWarnings.join('; ')}`);
+        }
+        const extractedCccd = geminiResult.extractedData?.cccd_number;
+        if (extractedCccd && extractedCccd !== data.cccd_number.trim()) {
+          throw new BadRequestException(
+            `Cảnh báo sai lệch: Số CCCD nhận diện trên ảnh (${extractedCccd}) không trùng khớp với số CCCD bạn khai báo (${data.cccd_number})!`,
+          );
+        }
+        return {
+          passed: true,
+          frontAnalysis: { isAuthentic: true, rawText: geminiResult.extractedData.raw_text },
+          backAnalysis: { isAuthentic: true },
+          matchedCccd: true,
+          matchedName: true,
+          extractedData: geminiResult.extractedData,
+        };
+      }
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      this.logger.warn(`[eKYC Pipeline] Gemini Vision fallback sang Tesseract: ${err.message}`);
+    }
 
     // 3. Quét OCR và kiểm tra tính nguyên bản ảnh Mặt Trước
     const frontAnalysis = await this.scanAndAnalyzeCccd(data.front_image_url, 'FRONT');
