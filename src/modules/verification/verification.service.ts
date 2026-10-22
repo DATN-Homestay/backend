@@ -156,6 +156,29 @@ export class VerificationService {
     return crypto.createHash('sha256').update(value).digest('hex');
   }
 
+  private async normalizeOrUploadImage(imageUrlOrBase64: string, folder = 'stayai/cccd'): Promise<string> {
+    if (!imageUrlOrBase64) return imageUrlOrBase64;
+    if (imageUrlOrBase64.startsWith('data:image/') || imageUrlOrBase64.length > 1000) {
+      try {
+        if (process.env.CLOUDINARY_CLOUD_NAME) {
+          const { v2: cloudinary } = await import('cloudinary');
+          cloudinary.config({
+            cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+            api_key: process.env.CLOUDINARY_API_KEY,
+            api_secret: process.env.CLOUDINARY_API_SECRET,
+          });
+          const uploadRes = await cloudinary.uploader.upload(imageUrlOrBase64, { folder });
+          if (uploadRes?.secure_url) {
+            return uploadRes.secure_url;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Không thể upload Base64 lên Cloudinary: ${err?.message}`);
+      }
+    }
+    return imageUrlOrBase64;
+  }
+
   private calculateHaversineDistance(
     lat1: number,
     lon1: number,
@@ -250,13 +273,16 @@ export class VerificationService {
     const encryptedCccd = this.encryptAES(dto.cccd_number.trim());
     const encryptedBank = this.encryptAES(dto.bank_account_number.trim());
 
+    const finalFrontImage = await this.normalizeOrUploadImage(dto.front_image_url);
+    const finalBackImage = await this.normalizeOrUploadImage(dto.back_image_url);
+
     let doc = await this.verificationDocRepo.findOne({ where: { host_id: hostId } });
     if (!doc) {
       doc = this.verificationDocRepo.create({
         host_id: hostId,
         cccd_number_encrypted: encryptedCccd,
-        cccd_front_image: dto.front_image_url,
-        cccd_back_image: dto.back_image_url,
+        cccd_front_image: finalFrontImage,
+        cccd_back_image: finalBackImage,
         bank_account_number_encrypted: encryptedBank,
         bank_name: dto.bank_name,
         bank_account_holder_name: dto.bank_account_holder_name,
@@ -266,8 +292,8 @@ export class VerificationService {
       });
     } else {
       doc.cccd_number_encrypted = encryptedCccd;
-      doc.cccd_front_image = dto.front_image_url;
-      doc.cccd_back_image = dto.back_image_url;
+      doc.cccd_front_image = finalFrontImage;
+      doc.cccd_back_image = finalBackImage;
       doc.bank_account_number_encrypted = encryptedBank;
       doc.bank_name = dto.bank_name;
       doc.bank_account_holder_name = dto.bank_account_holder_name;
