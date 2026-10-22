@@ -21,6 +21,7 @@ import { SendOtpDto } from './dto/send-otp.dto.js';
 import { CheckOtpDto } from './dto/check-otp.dto.js';
 import { VerifyGpsDto } from './dto/verify-gps.dto.js';
 import { VerifyLiveImageDto } from './dto/verify-live-image.dto.js';
+import { CccdOcrService } from './cccd-ocr.service.js';
 import * as crypto from 'crypto';
 import nodemailer from 'nodemailer';
 
@@ -45,6 +46,7 @@ export class VerificationService {
     private readonly homestayRepo: Repository<Homestay>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly cccdOcrService: CccdOcrService,
   ) {}
 
   // ==========================================
@@ -197,8 +199,26 @@ export class VerificationService {
   }
 
   // ==========================================
-  // BƯỚC 1: CCCD eKYC (+40đ)
+  // BƯỚC 1: CCCD eKYC (+40đ) - QUÉT OCR & PHÁT HIỆN LÀM GIẢ
   // ==========================================
+
+  /**
+   * Quét OCR nhanh mặt trước thẻ CCCD để tự động điền thông tin và kiểm tra chống giả
+   */
+  async scanCccdOcr(frontImageUrl: string) {
+    if (!frontImageUrl) {
+      throw new BadRequestException('Vui lòng cung cấp URL ảnh mặt trước CCCD để quét');
+    }
+    const analysis = await this.cccdOcrService.scanAndAnalyzeCccd(frontImageUrl, 'FRONT');
+    return {
+      is_authentic: analysis.isAuthentic,
+      extracted_cccd: analysis.extractedCccd,
+      extracted_name: analysis.extractedName,
+      extracted_birth_date: analysis.extractedBirthDate,
+      fraud_warnings: analysis.fraudWarnings,
+      raw_text: analysis.rawText,
+    };
+  }
 
   async verifyCccd(hostId: string, dto: VerifyCccdDto) {
     const homestay = await this.homestayRepo.findOne({ where: { id: dto.homestay_id } });
@@ -206,9 +226,18 @@ export class VerificationService {
       throw new NotFoundException(`Không tìm thấy homestay #${dto.homestay_id}`);
     }
 
+    // 1. CHẠY TOÀN BỘ QUY TRÌNH THẨM ĐỊNH OCR & CHỐNG LÀM GIẢ CCCD (ANTI-SPOOFING)
+    this.logger.log(`Bắt đầu thẩm định OCR & kiểm tra gian lận ảnh CCCD cho Host #${hostId}`);
+    const ocrResult = await this.cccdOcrService.verifyFullCccdPipeline({
+      front_image_url: dto.front_image_url,
+      back_image_url: dto.back_image_url,
+      cccd_number: dto.cccd_number,
+      full_name: dto.full_name,
+    });
+
     const cccdHash = this.hashSha256(dto.cccd_number.trim());
 
-    // Kiểm tra CCCD đã được người khác sử dụng hay chưa
+    // 2. Kiểm tra CCCD đã được người khác sử dụng hay chưa
     const existingDoc = await this.verificationDocRepo.findOne({
       where: { cccd_hash: cccdHash },
     });
@@ -253,27 +282,40 @@ export class VerificationService {
       claim.cccd_score + claim.phone_otp_score + claim.gps_score + claim.live_vision_score;
     await this.claimRepo.save(claim);
 
-    // Ghi log xác thực
+    // Ghi log xác thực chi tiết kết quả OCR & Anti-spoofing
     const log = this.logRepo.create({
       claim_request_id: claim.id,
-      step_name: 'CCCD_OCR',
+      step_name: 'CCCD_OCR_ANTISPOOFING',
       score_awarded: 40,
       detail_json: {
         cccd_masked: `***${dto.cccd_number.slice(-4)}`,
         full_name: dto.full_name,
         bank_name: dto.bank_name,
+        ocr_matched_cccd: ocrResult.matchedCccd,
+        ocr_matched_name: ocrResult.matchedName,
+        extracted_cccd: ocrResult.frontAnalysis?.extractedCccd,
+        extracted_name: ocrResult.frontAnalysis?.extractedName,
+        verified_at: new Date().toISOString(),
       },
     });
     await this.logRepo.save(log);
 
-    this.logger.log(`Host #${hostId} hoàn tất Bước 1 (CCCD OCR) cho Homestay #${dto.homestay_id}`);
+    this.logger.log(
+      `Host #${hostId} hoàn tất Bước 1 (CCCD OCR & Anti-spoofing Passed) cho Homestay #${dto.homestay_id}`,
+    );
 
     return {
       step: 1,
       score_earned: scoreEarned,
       total_score: claim.trust_score,
       cccd_verified: true,
-      message: 'Định danh CCCD thành công và đã được mã hóa AES-256 an toàn.',
+      extracted_data: {
+        cccd_number: ocrResult.frontAnalysis?.extractedCccd || dto.cccd_number,
+        full_name: ocrResult.frontAnalysis?.extractedName || dto.full_name,
+        birth_date: ocrResult.frontAnalysis?.extractedBirthDate,
+      },
+      message:
+        'Thẩm định thẻ CCCD qua hệ thống OCR & Anti-spoofing thành công (Xác thực phôi thẻ thật). Dữ liệu đã được mã hóa AES-256 an toàn.',
     };
   }
 

@@ -88,12 +88,27 @@ export class VerificationController {
   }
 
   /**
-   * BƯỚC 1: CCCD eKYC & Mã hóa AES-256 (+40đ)
+   * BƯỚC 1: CCCD eKYC & Mã hóa AES-256 (+40đ) - Kiểm tra OCR & Anti-spoofing
    */
   @Post('cccd')
   async verifyCccd(@Req() req: any, @Body() dto: VerifyCccdDto) {
     const hostId = this.getHostId(req);
     const data = await this.verificationService.verifyCccd(hostId, dto);
+    return {
+      statusCode: 200,
+      data,
+    };
+  }
+
+  /**
+   * Quét thử OCR và phân tích chống giả trên ảnh mặt trước CCCD
+   */
+  @Post('cccd/scan-ocr')
+  async scanCccdOcr(@Body() body: { image_url: string }) {
+    if (!body?.image_url) {
+      throw new BadRequestException('Vui lòng cung cấp image_url để quét OCR');
+    }
+    const data = await this.verificationService.scanCccdOcr(body.image_url);
     return {
       statusCode: 200,
       data,
