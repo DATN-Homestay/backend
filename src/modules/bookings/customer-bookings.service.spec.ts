@@ -159,7 +159,7 @@ describe('CustomerBookingsService', () => {
       ]);
     });
 
-    it('nên báo không còn phòng và liệt kê ngày hết, kể cả ngày thiếu dữ liệu lịch', async () => {
+    it('nên báo không còn phòng khi đêm đã có bản ghi và bị giữ/đặt', async () => {
       calendarRepo.find.mockResolvedValue([
         { date: checkIn, price: '900000.00', is_available: 0 },
       ]);
@@ -167,7 +167,8 @@ describe('CustomerBookingsService', () => {
       const result = await service.quote(dto());
 
       expect(result.available).toBe(false);
-      expect(result.unavailable_dates).toEqual([checkIn, addDays(checkIn, 1)]);
+      // Đêm chưa có dòng lịch giá không bị coi là hết phòng: tính theo base_price của phòng (logic fallback của nhóm)
+      expect(result.unavailable_dates).toEqual([checkIn]);
     });
 
     it('nên đánh dấu is_dropship với homestay chưa có chủ', async () => {
