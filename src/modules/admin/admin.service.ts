@@ -10,6 +10,8 @@ import { PayoutRequest, PayoutStatus } from '../payments/entities/payout-request
 import { ClaimRequest, ClaimStatus } from '../verification/entities/claim-request.entity.js';
 import { HostVerificationDocument, VerificationStatus } from '../verification/entities/host-verification-document.entity.js';
 import { Homestay, HomestayStatus } from '../homestays/entities/homestay.entity.js';
+import { Booking, BookingStatus } from '../bookings/entities/booking.entity.js';
+import { User } from '../users/entities/user.entity.js';
 import { ApprovePayoutDto } from './dto/approve-payout.dto.js';
 import { RejectClaimDto } from './dto/reject-claim.dto.js';
 import { SyncMarketDataDto } from './dto/sync-market-data.dto.js';
@@ -31,11 +33,84 @@ export class AdminService {
 
     @InjectRepository(Homestay)
     private readonly homestayRepo: Repository<Homestay>,
+
+    @InjectRepository(Booking)
+    private readonly bookingRepo: Repository<Booking>,
+
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
+
+  // =========================================================
+  // PHÂN HỆ 0: DASHBOARD TỔNG QUAN (ADMIN OVERVIEW)
+  // =========================================================
+
+  /**
+   * Lấy số liệu tổng quan hệ thống cho Admin Dashboard.
+   * Bao gồm: số user, số booking theo trạng thái, doanh thu, payout & claim đang chờ.
+   */
+  async getDashboardStats() {
+    const [totalUsers, totalHomestays, pendingPayoutsCount, pendingClaimsCount] =
+      await Promise.all([
+        this.userRepo.count(),
+        this.homestayRepo.count(),
+        this.payoutRepo.count({ where: { status: PayoutStatus.PENDING } }),
+        this.claimRepo.count({ where: { status: ClaimStatus.PENDING_REVIEW } }),
+      ]);
+
+    // Thống kê booking theo trạng thái
+    const bookingStats = await this.bookingRepo
+      .createQueryBuilder('b')
+      .select('b.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(b.total_amount), 0)', 'total_amount')
+      .groupBy('b.status')
+      .getRawMany<{ status: string; count: string; total_amount: string }>();
+
+    const bookingsByStatus: Record<string, number> = {};
+    let totalRevenue = 0;
+    let totalBookings = 0;
+
+    for (const row of bookingStats) {
+      const count = Number(row.count);
+      bookingsByStatus[row.status] = count;
+      totalBookings += count;
+      // Chỉ tính doanh thu từ đơn đã thanh toán (không tính đơn hủy/hết hạn)
+      if (
+        row.status === BookingStatus.PAID_ESCROW ||
+        row.status === BookingStatus.CHECKED_IN ||
+        row.status === BookingStatus.COMPLETED
+      ) {
+        totalRevenue += Number(row.total_amount);
+      }
+    }
+
+    return {
+      users: {
+        total: totalUsers,
+      },
+      homestays: {
+        total: totalHomestays,
+      },
+      bookings: {
+        total: totalBookings,
+        by_status: bookingsByStatus,
+      },
+      revenue: {
+        total_confirmed_vnd: Math.round(totalRevenue),
+        platform_commission_vnd: Math.round(totalRevenue * 0.075),
+      },
+      pending_actions: {
+        payouts_waiting: pendingPayoutsCount,
+        claims_waiting: pendingClaimsCount,
+      },
+    };
+  }
 
   // =========================================================
   // PHÂN HỆ 1: ĐỐI SOÁT & GIẢI NGÂN PAYOUT (REQ-016, BR-013)
   // =========================================================
+
 
   /**
    * Lấy danh sách payout đang chờ Admin phê duyệt (Maker-Checker).

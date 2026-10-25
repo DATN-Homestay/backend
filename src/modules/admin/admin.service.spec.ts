@@ -18,6 +18,8 @@ import {
   Homestay,
   HomestayStatus,
 } from '../homestays/entities/homestay.entity.js';
+import { Booking, BookingStatus } from '../bookings/entities/booking.entity.js';
+import { User } from '../users/entities/user.entity.js';
 
 // =========================================================
 // MOCK FACTORIES
@@ -29,6 +31,8 @@ const mockRepo = () => ({
   findOne: vi.fn(),
   update: vi.fn(),
   save: vi.fn(),
+  count: vi.fn(),
+  createQueryBuilder: vi.fn(),
 });
 
 /** Tạo AES-256-CBC encrypted string theo đúng format của hệ thống (sync) */
@@ -108,12 +112,16 @@ describe('AdminService', () => {
   let claimRepo: ReturnType<typeof mockRepo>;
   let verificationDocRepo: ReturnType<typeof mockRepo>;
   let homestayRepo: ReturnType<typeof mockRepo>;
+  let bookingRepo: ReturnType<typeof mockRepo>;
+  let userRepo: ReturnType<typeof mockRepo>;
 
   beforeEach(async () => {
     payoutRepo = mockRepo();
     claimRepo = mockRepo();
     verificationDocRepo = mockRepo();
     homestayRepo = mockRepo();
+    bookingRepo = mockRepo();
+    userRepo = mockRepo();
 
     // Set AES_SECRET_KEY env cho decrypt hoạt động
     process.env.AES_SECRET_KEY =
@@ -129,6 +137,8 @@ describe('AdminService', () => {
           useValue: verificationDocRepo,
         },
         { provide: getRepositoryToken(Homestay), useValue: homestayRepo },
+        { provide: getRepositoryToken(Booking), useValue: bookingRepo },
+        { provide: getRepositoryToken(User), useValue: userRepo },
       ],
     }).compile();
 
@@ -136,8 +146,94 @@ describe('AdminService', () => {
   });
 
   // =========================================================
+  // PHÂN HỆ 0: DASHBOARD STATS
+  // =========================================================
+
+  describe('getDashboardStats()', () => {
+    it('nên trả về số liệu tổng quan đầy đủ', async () => {
+      // Arrange
+      userRepo.count.mockResolvedValue(150);
+      homestayRepo.count.mockResolvedValue(42);
+      payoutRepo.count.mockResolvedValue(3);
+      claimRepo.count.mockResolvedValue(5);
+
+      const qbMock = {
+        select: vi.fn().mockReturnThis(),
+        addSelect: vi.fn().mockReturnThis(),
+        groupBy: vi.fn().mockReturnThis(),
+        getRawMany: vi.fn().mockResolvedValue([
+          { status: BookingStatus.PAID_ESCROW, count: '10', total_amount: '5000000' },
+          { status: BookingStatus.COMPLETED, count: '20', total_amount: '10000000' },
+          { status: BookingStatus.CANCELLED, count: '5', total_amount: '2000000' },
+          { status: BookingStatus.EXPIRED, count: '8', total_amount: '3000000' },
+        ]),
+      };
+      bookingRepo.createQueryBuilder.mockReturnValue(qbMock);
+
+      // Act
+      const result = await service.getDashboardStats();
+
+      // Assert
+      expect(result.users.total).toBe(150);
+      expect(result.homestays.total).toBe(42);
+      expect(result.bookings.total).toBe(43); // 10+20+5+8
+      expect(result.bookings.by_status[BookingStatus.PAID_ESCROW]).toBe(10);
+      expect(result.bookings.by_status[BookingStatus.COMPLETED]).toBe(20);
+      // Doanh thu: PAID_ESCROW (5M) + COMPLETED (10M) = 15M; CANCELLED và EXPIRED không tính
+      expect(result.revenue.total_confirmed_vnd).toBe(15000000);
+      expect(result.revenue.platform_commission_vnd).toBe(Math.round(15000000 * 0.075));
+      expect(result.pending_actions.payouts_waiting).toBe(3);
+      expect(result.pending_actions.claims_waiting).toBe(5);
+    });
+
+    it('nên trả về zero khi không có dữ liệu', async () => {
+      userRepo.count.mockResolvedValue(0);
+      homestayRepo.count.mockResolvedValue(0);
+      payoutRepo.count.mockResolvedValue(0);
+      claimRepo.count.mockResolvedValue(0);
+
+      const qbMock = {
+        select: vi.fn().mockReturnThis(),
+        addSelect: vi.fn().mockReturnThis(),
+        groupBy: vi.fn().mockReturnThis(),
+        getRawMany: vi.fn().mockResolvedValue([]),
+      };
+      bookingRepo.createQueryBuilder.mockReturnValue(qbMock);
+
+      const result = await service.getDashboardStats();
+
+      expect(result.users.total).toBe(0);
+      expect(result.bookings.total).toBe(0);
+      expect(result.revenue.total_confirmed_vnd).toBe(0);
+      expect(result.pending_actions.payouts_waiting).toBe(0);
+    });
+
+    it('nên bao gồm CHECKED_IN trong doanh thu', async () => {
+      userRepo.count.mockResolvedValue(1);
+      homestayRepo.count.mockResolvedValue(1);
+      payoutRepo.count.mockResolvedValue(0);
+      claimRepo.count.mockResolvedValue(0);
+
+      const qbMock = {
+        select: vi.fn().mockReturnThis(),
+        addSelect: vi.fn().mockReturnThis(),
+        groupBy: vi.fn().mockReturnThis(),
+        getRawMany: vi.fn().mockResolvedValue([
+          { status: BookingStatus.CHECKED_IN, count: '2', total_amount: '4000000' },
+        ]),
+      };
+      bookingRepo.createQueryBuilder.mockReturnValue(qbMock);
+
+      const result = await service.getDashboardStats();
+
+      expect(result.revenue.total_confirmed_vnd).toBe(4000000);
+    });
+  });
+
+  // =========================================================
   // PHÂN HỆ 1: PAYOUT MANAGEMENT
   // =========================================================
+
 
   describe('getPendingPayouts()', () => {
     it('nên trả về danh sách payout PENDING với thông tin giải mã STK', async () => {

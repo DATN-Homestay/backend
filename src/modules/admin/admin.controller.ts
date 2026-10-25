@@ -5,22 +5,30 @@ import {
   Body,
   Param,
   UseGuards,
-  Request,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import { RapidApiCrawlerService } from './rapidapi-crawler.service.js';
 import { ApprovePayoutDto } from './dto/approve-payout.dto.js';
+import { RejectPayoutDto } from './dto/reject-payout.dto.js';
 import { RejectClaimDto } from './dto/reject-claim.dto.js';
 import { SyncMarketDataDto } from './dto/sync-market-data.dto.js';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { ResponseMessage } from '../../common/decorators/response.decorator.js';
 import { RoleType } from '../users/entities/role.entity.js';
 
 /**
  * Admin Controller - Toàn quyền hệ thống (RBAC Role: ADMIN)
- * Base route: /admin
+ * Base route: /api/v1/admin
+ *
+ * Mọi endpoint đều yêu cầu:
+ *   - Bearer Access Token hợp lệ (JwtAuthGuard)
+ *   - Role ADMIN (RolesGuard)
  */
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,6 +40,21 @@ export class AdminController {
   ) {}
 
   // =========================================================
+  // PHÂN HỆ 0: DASHBOARD TỔNG QUAN (ADMIN OVERVIEW)
+  // =========================================================
+
+  /**
+   * GET /admin/dashboard/stats
+   * Số liệu tổng quan hệ thống: user, homestay, booking theo trạng thái,
+   * doanh thu tổng, hoa hồng sàn, payout & claim đang chờ xử lý.
+   */
+  @Get('dashboard/stats')
+  @ResponseMessage('Lấy thống kê tổng quan thành công')
+  getDashboardStats() {
+    return this.adminService.getDashboardStats();
+  }
+
+  // =========================================================
   // PHÂN HỆ 1: ĐỐI SOÁT & GIẢI NGÂN PAYOUT (REQ-016, BR-013)
   // =========================================================
 
@@ -41,6 +64,7 @@ export class AdminController {
    * Giải mã AES-256 STK ngân hàng + kiểm tra khớp tên CCCD.
    */
   @Get('payouts/pending')
+  @ResponseMessage('Lấy danh sách payout chờ duyệt thành công')
   getPendingPayouts() {
     return this.adminService.getPendingPayouts();
   }
@@ -48,15 +72,16 @@ export class AdminController {
   /**
    * POST /admin/payouts/:id/approve
    * Admin (Checker) xác nhận đã chuyển khoản và upload biên lai ngân hàng.
+   * BR-020: Chỉ duyệt khi tên chủ tài khoản khớp 100% tên CCCD.
    */
   @Post('payouts/:id/approve')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Giải ngân thành công cho Host')
   approvePayout(
     @Param('id') payoutId: string,
     @Body() dto: ApprovePayoutDto,
-    @Request() req: any,
+    @CurrentUser('id') adminId: string,
   ) {
-    // TODO: Lấy adminId từ req.user khi đã có JwtAuthGuard
-    const adminId = req.user?.id ?? '1';
     return this.adminService.approvePayout(payoutId, adminId, dto);
   }
 
@@ -65,13 +90,14 @@ export class AdminController {
    * Admin từ chối giải ngân với lý do cụ thể.
    */
   @Post('payouts/:id/reject')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Đã từ chối giải ngân')
   rejectPayout(
     @Param('id') payoutId: string,
-    @Body('reason') reason: string,
-    @Request() req: any,
+    @Body() dto: RejectPayoutDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    const adminId = req.user?.id ?? '1';
-    return this.adminService.rejectPayout(payoutId, adminId, reason);
+    return this.adminService.rejectPayout(payoutId, adminId, dto.reason);
   }
 
   // =========================================================
@@ -83,6 +109,7 @@ export class AdminController {
    * Lấy danh sách hồ sơ eKYC chờ Admin xét duyệt thủ công (trust score 70-99).
    */
   @Get('claims/pending')
+  @ResponseMessage('Lấy danh sách hồ sơ chờ duyệt thành công')
   getPendingClaims() {
     return this.adminService.getPendingClaims();
   }
@@ -93,8 +120,12 @@ export class AdminController {
    * → is_claimed = 1, status = ACTIVE
    */
   @Post('claims/:id/approve')
-  approveClaim(@Param('id') claimId: string, @Request() req: any) {
-    const adminId = req.user?.id ?? '1';
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Phê duyệt thủ công thành công. Homestay đã được cấp quyền chính chủ!')
+  approveClaim(
+    @Param('id') claimId: string,
+    @CurrentUser('id') adminId: string,
+  ) {
     return this.adminService.approveClaim(claimId, adminId);
   }
 
@@ -103,12 +134,13 @@ export class AdminController {
    * Admin từ chối hồ sơ xác thực với lý do.
    */
   @Post('claims/:id/reject')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Đã từ chối hồ sơ xác thực')
   rejectClaim(
     @Param('id') claimId: string,
     @Body() dto: RejectClaimDto,
-    @Request() req: any,
+    @CurrentUser('id') adminId: string,
   ) {
-    const adminId = req.user?.id ?? '1';
     return this.adminService.rejectClaim(claimId, adminId, dto);
   }
 
@@ -122,21 +154,27 @@ export class AdminController {
    * (Thông thường chạy qua Cronjob 02:00 AM)
    */
   @Post('sync/rapidapi-market-data')
-  syncRapidApiMarketData(@Body() dto: SyncMarketDataDto, @Request() req: any) {
-    const adminId = req.user?.id ?? '1';
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Đồng bộ dữ liệu giá và tỷ lệ kín phòng từ RapidAPI thành công')
+  syncRapidApiMarketData(
+    @Body() dto: SyncMarketDataDto,
+    @CurrentUser('id') adminId: string,
+  ) {
     return this.adminService.syncRapidApiMarketData(dto, adminId);
   }
 
   /**
    * POST /admin/sync/crawl-booking-homestays
-   * Cào dữ liệu homestay từ Booking.com qua RapidAPI và lưu vào MySQL
+   * Cào dữ liệu homestay từ Booking.com qua RapidAPI và lưu vào MySQL.
    */
   @Post('sync/crawl-booking-homestays')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Cào dữ liệu homestay thành công')
   async crawlBookingHomestays(
     @Body() body: { city?: string; limit?: number },
   ) {
-    const city = body.city || 'Đà Lạt';
-    const limit = body.limit || 10;
+    const city = body.city ?? 'Đà Lạt';
+    const limit = body.limit ?? 10;
     return await this.crawlerService.crawlAndSaveHomestays(city, limit);
   }
 }
