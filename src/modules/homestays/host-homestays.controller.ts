@@ -126,10 +126,26 @@ export class HostHomestaysController {
     return await this.homestaysService.addRoomImage(hostId, roomId, dto);
   }
 
+  @Post('rooms/:id/images/batch')
+  async batchAddRoomImages(
+    @Req() req: any,
+    @Param('id') roomId: string,
+    @Body('images') images: string[],
+  ) {
+    const hostId = this.getHostId(req);
+    return await this.homestaysService.batchUploadRoomImages(hostId, roomId, images || []);
+  }
+
   @Delete('rooms/images/:imageId')
   async deleteRoomImage(@Req() req: any, @Param('imageId') imageId: string) {
     const hostId = this.getHostId(req);
     return await this.homestaysService.deleteRoomImage(hostId, imageId);
+  }
+
+  @Get('homestays/:id/photos-count')
+  async getHomestayPhotosCount(@Param('id') id: string) {
+    const count = await this.homestaysService.getHomestayTotalPhotoCount(id);
+    return { count, max: 100, remaining: Math.max(0, 100 - count) };
   }
 
   // ==========================================

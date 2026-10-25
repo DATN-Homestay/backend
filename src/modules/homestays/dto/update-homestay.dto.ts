@@ -34,6 +34,13 @@ export class UpdateHomestayDto {
   amenities_json?: Record<string, any>;
 
   @IsOptional()
+  property_images?: string[];
+
+  @IsOptional()
+  @IsString()
+  main_image_url?: string;
+
+  @IsOptional()
   rules_json?: Record<string, any>;
 
   @IsOptional()

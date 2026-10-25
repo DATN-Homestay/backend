@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsNumber, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, Min, IsOptional } from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
@@ -12,4 +12,7 @@ export class CreateRoomDto {
   @IsNumber()
   @Min(50000, { message: 'Giá phòng cơ sở tối thiểu là 50,000 VNĐ' })
   base_price: number;
+
+  @IsOptional()
+  images?: string[];
 }

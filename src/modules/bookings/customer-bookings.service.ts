@@ -68,14 +68,27 @@ export class CustomerBookingsService {
       order: { date: 'ASC' },
     });
 
-    const byDate = new Map(rows.map((r) => [r.date, r]));
+    const normalizeDate = (d: any) =>
+      typeof d === 'string' ? d.slice(0, 10) : d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+
+    const byDate = new Map(rows.map((r) => [normalizeDate(r.date), r]));
+    const defaultPrice = toVnd(stay.room.base_price) || 500000;
+
+    // Nếu chưa có lịch giá cho ngày d thì fallback về base_price và coi là còn phòng.
+    // Chỉ coi là unavailable khi ngày đó đã có bản ghi và is_available !== 1.
     const unavailable = stay.nights.filter((d) => {
       const row = byDate.get(d);
-      return !row || row.is_available !== 1;
+      if (!row) return false;
+      return Number(row.is_available) !== 1;
     });
-    const nightlyPrices = stay.nights
-      .filter((d) => byDate.has(d))
-      .map((d) => ({ date: d, price: toVnd(byDate.get(d)!.price) }));
+
+    const nightlyPrices = stay.nights.map((d) => {
+      const row = byDate.get(d);
+      return {
+        date: d,
+        price: row ? toVnd(row.price) : defaultPrice,
+      };
+    });
     const roomSubtotal = nightlyPrices.reduce((sum, n) => sum + n.price, 0);
 
     return {
@@ -105,6 +118,7 @@ export class CustomerBookingsService {
    * Chống Overbooking (BR-007): khóa dòng lịch giá bằng SELECT ... FOR UPDATE trong một
    * transaction NGẮN (vài mili-giây), sau đó đánh dấu giữ chỗ bằng is_available = 0 và
    * locked_until. Không giữ transaction 15 phút; hết hạn do BookingExpiryService mở lại.
+   * Nếu ngày chưa có trong price_calendars thì tự động khởi tạo theo room.base_price.
    */
   async createBooking(authUser: AuthUser, dto: CreateBookingDto) {
     const stay = await this.resolveStay(dto);
@@ -126,8 +140,19 @@ export class CustomerBookingsService {
         .orderBy('pc.date', 'ASC')
         .getMany();
 
-      const byDate = new Map(rows.map((r) => [r.date, r]));
-      const unavailable = stay.nights.filter((d) => byDate.get(d)?.is_available !== 1);
+      const normalizeDate = (d: any) =>
+        typeof d === 'string' ? d.slice(0, 10) : d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+
+      const byDate = new Map(rows.map((r) => [normalizeDate(r.date), r]));
+      const defaultPrice = toVnd(stay.room.base_price) || 500000;
+
+      // Kiểm tra xem có ngày nào thực sự đã bị kín phòng không
+      const unavailable = stay.nights.filter((d) => {
+        const row = byDate.get(d);
+        if (!row) return false;
+        return Number(row.is_available) !== 1;
+      });
+
       if (unavailable.length > 0) {
         throw new ConflictException({
           statusCode: 409,
@@ -138,14 +163,36 @@ export class CustomerBookingsService {
         });
       }
 
-      // Zero-Trust (BR-009): tiền tính từ chính các dòng vừa khóa, không nhận gì từ client
-      const roomSubtotal = rows.reduce((sum, r) => sum + toVnd(r.price), 0);
+      // Đối với các ngày đã có trong price_calendars: Cập nhật giữ chỗ
+      const existingRowsToLock = rows.filter((r) => stay.nights.includes(normalizeDate(r.date)));
+      if (existingRowsToLock.length > 0) {
+        await em.update(
+          PriceCalendar,
+          { id: In(existingRowsToLock.map((r) => r.id)) },
+          { is_available: 0, locked_until: expiresAt },
+        );
+      }
 
-      await em.update(
-        PriceCalendar,
-        { id: In(rows.map((r) => r.id)) },
-        { is_available: 0, locked_until: expiresAt },
-      );
+      // Đối với các ngày chưa có trong price_calendars: Tự động khởi tạo dòng mới với trạng thái locked
+      const missingDates = stay.nights.filter((d) => !byDate.has(d));
+      for (const d of missingDates) {
+        const newRow = em.create(PriceCalendar, {
+          room_id: stay.room.id,
+          date: d as any,
+          price: defaultPrice,
+          is_available: 0,
+          locked_until: expiresAt,
+        });
+        const saved = await em.save(newRow);
+        byDate.set(d, saved);
+      }
+
+      // Zero-Trust (BR-009): tiền tính từ các ngày thực tế
+      const allNightPrices = stay.nights.map((d) => {
+        const row = byDate.get(d);
+        return row ? toVnd(row.price) : defaultPrice;
+      });
+      const roomSubtotal = allNightPrices.reduce((sum, p) => sum + p, 0);
 
       return em.save(
         em.create(Booking, {
@@ -212,6 +259,8 @@ export class CustomerBookingsService {
         check_in_date: b.check_in_date,
         check_out_date: b.check_out_date,
         total_amount: toVnd(b.total_amount),
+        is_dropship: b.is_dropship === 1,
+        ota_fulfillment: b.ota_fulfillment_json ?? null,
         expires_at: b.status === BookingStatus.PENDING_PAYMENT ? b.expires_at : null,
         created_at: b.created_at,
       })),
@@ -241,6 +290,7 @@ export class CustomerBookingsService {
       booking_code: booking.booking_code,
       status: booking.status,
       is_dropship: booking.is_dropship === 1,
+      ota_fulfillment: booking.ota_fulfillment_json ?? null,
       homestay: {
         id: homestay.id,
         name: homestay.name,

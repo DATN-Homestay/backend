@@ -12,6 +12,7 @@ import { HostPayoutsController } from './host-payouts.controller.js';
 import { CustomerPaymentsController } from './customer-payments.controller.js';
 import { CustomerPaymentsService } from './customer-payments.service.js';
 import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
+import { BookingsModule } from '../bookings/bookings.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
       PriceCalendar,
       RefundTransaction,
     ]),
+    BookingsModule,
   ],
   controllers: [HostPayoutsController, CustomerPaymentsController],
   providers: [PaymentsService, CustomerPaymentsService],

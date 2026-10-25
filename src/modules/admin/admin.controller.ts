@@ -22,6 +22,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ResponseMessage } from '../../common/decorators/response.decorator.js';
 import { RoleType } from '../users/entities/role.entity.js';
 
+import { B2bDemandFulfillmentService } from '../bookings/b2b-demand-fulfillment.service.js';
+
 /**
  * Admin Controller - Toàn quyền hệ thống (RBAC Role: ADMIN)
  * Base route: /api/v1/admin
@@ -37,6 +39,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly crawlerService: RapidApiCrawlerService,
+    private readonly b2bFulfillmentService: B2bDemandFulfillmentService,
   ) {}
 
   // =========================================================
@@ -176,5 +179,27 @@ export class AdminController {
     const city = body.city ?? 'Đà Lạt';
     const limit = body.limit ?? 10;
     return await this.crawlerService.crawlAndSaveHomestays(city, limit);
+  }
+
+  // =========================================================
+  // PHÂN HỆ 4: QUẢN LÝ ĐƠN DROPSHIP B2B BOOKING.COM (MoR)
+  // =========================================================
+
+  /**
+   * GET /admin/dropship/orders
+   * Lấy danh sách các đơn đặt phòng tự động qua Booking.com Demand API
+   */
+  @Get('dropship/orders')
+  async getDropshipOrders() {
+    return await this.b2bFulfillmentService.getDropshipOrdersForAdmin();
+  }
+
+  /**
+   * POST /admin/dropship/retry/:id
+   * Admin bấm thử lại đặt phòng B2B cho một đơn
+   */
+  @Post('dropship/retry/:id')
+  async retryDropshipOrder(@Param('id') bookingId: string) {
+    return await this.b2bFulfillmentService.retryFulfillment(bookingId);
   }
 }

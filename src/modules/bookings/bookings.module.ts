@@ -13,6 +13,7 @@ import { HostBookingsController } from './host-bookings.controller.js';
 import { CustomerBookingsController } from './customer-bookings.controller.js';
 import { CustomerBookingsService } from './customer-bookings.service.js';
 import { BookingExpiryService } from './booking-expiry.service.js';
+import { B2bDemandFulfillmentService } from './b2b-demand-fulfillment.service.js';
 
 @Module({
   imports: [
@@ -26,7 +27,18 @@ import { BookingExpiryService } from './booking-expiry.service.js';
     ]),
   ],
   controllers: [HostBookingsController, CustomerBookingsController],
-  providers: [BookingsService, CustomerBookingsService, BookingExpiryService],
-  exports: [BookingsService, CustomerBookingsService, BookingExpiryService, TypeOrmModule],
+  providers: [
+    BookingsService,
+    CustomerBookingsService,
+    BookingExpiryService,
+    B2bDemandFulfillmentService,
+  ],
+  exports: [
+    BookingsService,
+    CustomerBookingsService,
+    BookingExpiryService,
+    B2bDemandFulfillmentService,
+    TypeOrmModule,
+  ],
 })
 export class BookingsModule {}
