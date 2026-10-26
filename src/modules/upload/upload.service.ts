@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import 'multer';
 
 @Injectable()
@@ -33,7 +33,7 @@ export class UploadService {
           folder,
           resource_type: 'image',
         },
-        (error, result: UploadApiResponse | undefined) => {
+        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
           if (error || !result) {
             this.logger.error('Lỗi khi tải ảnh lên Cloudinary:', error);
             return reject(new BadRequestException(`Lỗi upload Cloudinary: ${error?.message || 'Không xác định'}`));
