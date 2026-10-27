@@ -49,7 +49,7 @@ export class AdminService {
 
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
-  ) {}
+  ) { }
 
   // =========================================================
   // PHÂN HỆ 0: DASHBOARD TỔNG QUAN (ADMIN OVERVIEW)
@@ -724,11 +724,11 @@ export class AdminService {
       ...this.toAdminUserView(host),
       verification: host.verification_document
         ? {
-            status: host.verification_document.status,
-            score: host.verification_document.verification_score,
-            bank_name: host.verification_document.bank_name,
-            bank_holder: host.verification_document.bank_account_holder_name,
-          }
+          status: host.verification_document.status,
+          score: host.verification_document.verification_score,
+          bank_name: host.verification_document.bank_name,
+          bank_holder: host.verification_document.bank_account_holder_name,
+        }
         : null,
       homestays: (host.homestays ?? []).map((h) => ({
         id: h.id,
@@ -876,11 +876,11 @@ export class AdminService {
       rules_json: homestay.rules_json,
       host: homestay.host
         ? {
-            id: homestay.host.id,
-            full_name: homestay.host.full_name,
-            email: homestay.host.email,
-            phone_number: homestay.host.phone_number,
-          }
+          id: homestay.host.id,
+          full_name: homestay.host.full_name,
+          email: homestay.host.email,
+          phone_number: homestay.host.phone_number,
+        }
         : null,
       rooms: (homestay.rooms ?? []).map((room) => ({
         id: room.id,
