@@ -272,7 +272,7 @@ export class CustomerBookingsService {
   async getDetail(authUser: AuthUser, id: string) {
     const booking = await this.bookingRepo.findOne({
       where: { id },
-      relations: { room: { homestay: true }, payments: true, escrow: true },
+      relations: { room: { homestay: true }, payments: true, escrow: true, refunds: true },
     });
 
     const homestay = booking?.room?.homestay;
@@ -318,6 +318,18 @@ export class CustomerBookingsService {
         created_at: p.created_at,
       })),
       escrow_status: booking.escrow?.status ?? null,
+      cancelled_at: booking.cancelled_at,
+      cancelled_by: booking.cancelled_by,
+      cancel_reason: booking.cancel_reason,
+      refunds: (booking.refunds ?? []).map((r) => ({
+        id: r.id,
+        amount: toVnd(r.refund_amount),
+        status: r.status,
+        source: r.source,
+        reason: r.reason,
+        processed_at: r.processed_at,
+        created_at: r.created_at,
+      })),
       created_at: booking.created_at,
     };
   }

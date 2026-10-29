@@ -2,6 +2,9 @@ import * as crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
 import {
   buildPaymentUrl,
+  buildRefundRequest,
+  buildRefundSignData,
+  verifyRefundResponse,
   buildSignData,
   formatVnpDate,
   generateTxnRef,
@@ -114,6 +117,90 @@ describe('vnpay.helper', () => {
       expect(normalizeIp('::ffff:118.70.12.5')).toBe('118.70.12.5');
       expect(normalizeIp(undefined)).toBe('127.0.0.1');
       expect(normalizeIp('27.72.1.9')).toBe('27.72.1.9');
+    });
+  });
+
+  describe('API hoàn tiền', () => {
+    const refundInput = {
+      requestId: 'RF12A1',
+      tmnCode: 'TMN12345',
+      transactionType: '03' as const,
+      txnRef: 'BK20261019AAAA1111-1A2B3C',
+      amountVnd: 1500000,
+      transactionNo: '14500001',
+      transactionDate: '20261019153005',
+      createBy: 'StayAI-System',
+      createDate: '20261020101500',
+      ipAddr: '127.0.0.1',
+      orderInfo: 'Hoan tien don 12',
+    };
+
+    it('chuỗi ký nối bằng | đúng thứ tự trong tài liệu VNPay, tiền nhân 100', () => {
+      expect(buildRefundSignData(refundInput)).toBe(
+        'RF12A1|2.1.0|refund|TMN12345|03|BK20261019AAAA1111-1A2B3C|150000000|14500001|20261019153005|StayAI-System|20261020101500|127.0.0.1|Hoan tien don 12',
+      );
+    });
+
+    it('body request có đủ trường, chữ ký khớp HMAC-SHA512 tính độc lập', () => {
+      const body = buildRefundRequest(refundInput, SECRET);
+      const expected = crypto
+        .createHmac('sha512', SECRET)
+        .update(buildRefundSignData(refundInput), 'utf-8')
+        .digest('hex');
+
+      expect(body.vnp_SecureHash).toBe(expected);
+      expect(body).toMatchObject({
+        vnp_Command: 'refund',
+        vnp_Version: '2.1.0',
+        vnp_TransactionType: '03',
+        vnp_Amount: '150000000',
+        vnp_TransactionNo: '14500001',
+      });
+    });
+
+    it('vnp_TransactionNo để trống vẫn nằm đúng vị trí trong chuỗi ký', () => {
+      const data = buildRefundSignData({ ...refundInput, transactionNo: undefined });
+      expect(data.split('|')[7]).toBe('');
+      expect(data.split('|')).toHaveLength(13);
+    });
+
+    /** Phản hồi VNPay ký theo thứ tự trường trong tài liệu */
+    const signedResponse = (overrides: Record<string, string> = {}) => {
+      const response: Record<string, string> = {
+        vnp_ResponseId: 'RES1',
+        vnp_Command: 'refund',
+        vnp_ResponseCode: '00',
+        vnp_Message: 'Refund Success',
+        vnp_TmnCode: 'TMN12345',
+        vnp_TxnRef: 'BK1-AAAAAA',
+        vnp_Amount: '150000000',
+        vnp_BankCode: 'NCB',
+        vnp_PayDate: '20261020101530',
+        vnp_TransactionNo: '14500002',
+        vnp_TransactionType: '03',
+        vnp_TransactionStatus: '05',
+        vnp_OrderInfo: 'Hoan tien don 12',
+        ...overrides,
+      };
+      const data = [
+        'vnp_ResponseId', 'vnp_Command', 'vnp_ResponseCode', 'vnp_Message', 'vnp_TmnCode',
+        'vnp_TxnRef', 'vnp_Amount', 'vnp_BankCode', 'vnp_PayDate', 'vnp_TransactionNo',
+        'vnp_TransactionType', 'vnp_TransactionStatus', 'vnp_OrderInfo',
+      ].map((k) => response[k] ?? '').join('|');
+      return { ...response, vnp_SecureHash: crypto.createHmac('sha512', SECRET).update(data, 'utf-8').digest('hex') };
+    };
+
+    it('verifyRefundResponse: chấp nhận phản hồi ký đúng', () => {
+      expect(verifyRefundResponse(signedResponse(), SECRET)).toBe(true);
+    });
+
+    it('verifyRefundResponse: từ chối khi bị sửa mã/số tiền, sai secret hoặc thiếu chữ ký', () => {
+      const ok = signedResponse();
+      expect(verifyRefundResponse({ ...ok, vnp_ResponseCode: '00', vnp_Amount: '1' }, SECRET)).toBe(false);
+      expect(verifyRefundResponse(ok, 'SECRET_KHAC')).toBe(false);
+      expect(verifyRefundResponse({ ...ok, vnp_SecureHash: undefined }, SECRET)).toBe(false);
+      // Phản hồi lỗi như mã 99 không có chữ ký
+      expect(verifyRefundResponse({ vnp_ResponseCode: '99', vnp_Message: 'Unexpected error' }, SECRET)).toBe(false);
     });
   });
 });

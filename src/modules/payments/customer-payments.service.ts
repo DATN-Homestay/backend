@@ -13,6 +13,7 @@ import { PaymentStatus, PaymentTransaction } from './entities/payment-transactio
 import { Booking, BookingStatus } from '../bookings/entities/booking.entity.js';
 import { EscrowHold, EscrowStatus } from '../bookings/entities/escrow-hold.entity.js';
 import {
+  RefundSource,
   RefundStatus,
   RefundTransaction,
 } from '../bookings/entities/refund-transaction.entity.js';
@@ -323,7 +324,10 @@ export class CustomerPaymentsService {
     await em.save(
       em.create(RefundTransaction, {
         booking_id: booking.id,
+        payment_id: payment.id,
+        source: RefundSource.LATE_PAYMENT,
         refund_amount: toVnd(payment.amount),
+        refund_percentage: 100,
         penalty_amount: 0,
         status: RefundStatus.PENDING,
         reason,

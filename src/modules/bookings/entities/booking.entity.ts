@@ -85,6 +85,20 @@ export class Booking {
   })
   ota_fulfillment_json: Record<string, any> | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  cancelled_at: Date | null;
+
+  @Column({
+    type: 'enum',
+    enum: ['CUSTOMER', 'HOST', 'ADMIN', 'SYSTEM'],
+    nullable: true,
+    comment: 'Ai hủy đơn',
+  })
+  cancelled_by: 'CUSTOMER' | 'HOST' | 'ADMIN' | 'SYSTEM' | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  cancel_reason: string | null;
+
   @Index('idx_bookings_expires_at')
   @Column({
     type: 'timestamp',

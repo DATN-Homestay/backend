@@ -14,6 +14,10 @@ import { CustomerBookingsController } from './customer-bookings.controller.js';
 import { CustomerBookingsService } from './customer-bookings.service.js';
 import { BookingExpiryService } from './booking-expiry.service.js';
 import { B2bDemandFulfillmentService } from './b2b-demand-fulfillment.service.js';
+import { CancellationController, AdminRefundsController } from './cancellation.controller.js';
+import { CancellationService } from './cancellation.service.js';
+import { RefundProcessorService } from './refund-processor.service.js';
+import { PaymentTransaction } from '../payments/entities/payment-transaction.entity.js';
 
 @Module({
   imports: [
@@ -24,20 +28,30 @@ import { B2bDemandFulfillmentService } from './b2b-demand-fulfillment.service.js
       Room,
       Homestay,
       PriceCalendar,
+      PaymentTransaction,
     ]),
   ],
-  controllers: [HostBookingsController, CustomerBookingsController],
+  controllers: [
+    HostBookingsController,
+    CustomerBookingsController,
+    CancellationController,
+    AdminRefundsController,
+  ],
   providers: [
     BookingsService,
     CustomerBookingsService,
     BookingExpiryService,
     B2bDemandFulfillmentService,
+    CancellationService,
+    RefundProcessorService,
   ],
   exports: [
     BookingsService,
     CustomerBookingsService,
     BookingExpiryService,
     B2bDemandFulfillmentService,
+    CancellationService,
+    RefundProcessorService,
     TypeOrmModule,
   ],
 })

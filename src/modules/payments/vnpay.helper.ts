@@ -80,3 +80,103 @@ export const IPN_RESPONSE = {
   INVALID_CHECKSUM: { RspCode: '97', Message: 'Invalid Checksum' },
   UNKNOWN_ERROR: { RspCode: '99', Message: 'Unknown error' },
 } as const;
+
+// =========================================================
+// API HOÀN TIỀN (vnp_Command = refund)
+// =========================================================
+
+export interface RefundRequestInput {
+  /** Duy nhất cho từng yêu cầu, tối đa 32 ký tự; gửi lại cùng giá trị thì VNPay coi là yêu cầu trùng */
+  requestId: string;
+  tmnCode: string;
+  /** 02: hoàn toàn phần, 03: hoàn một phần */
+  transactionType: '02' | '03';
+  txnRef: string;
+  amountVnd: number;
+  /** Mã giao dịch phía VNPay (vnp_TransactionNo); có thể để trống */
+  transactionNo?: string;
+  /** vnp_PayDate của giao dịch gốc, yyyyMMddHHmmss */
+  transactionDate: string;
+  createBy: string;
+  createDate: string;
+  ipAddr: string;
+  orderInfo: string;
+}
+
+/** Chuỗi ký của yêu cầu hoàn tiền: các trường nối bằng '|' theo ĐÚNG thứ tự VNPay quy định */
+export function buildRefundSignData(input: RefundRequestInput): string {
+  return [
+    input.requestId,
+    '2.1.0',
+    'refund',
+    input.tmnCode,
+    input.transactionType,
+    input.txnRef,
+    String(input.amountVnd * 100),
+    input.transactionNo ?? '',
+    input.transactionDate,
+    input.createBy,
+    input.createDate,
+    input.ipAddr,
+    input.orderInfo,
+  ].join('|');
+}
+
+/** Body JSON gửi lên API hoàn tiền, đã ký HMAC-SHA512 */
+export function buildRefundRequest(
+  input: RefundRequestInput,
+  secret: string,
+): Record<string, string> {
+  return {
+    vnp_RequestId: input.requestId,
+    vnp_Version: '2.1.0',
+    vnp_Command: 'refund',
+    vnp_TmnCode: input.tmnCode,
+    vnp_TransactionType: input.transactionType,
+    vnp_TxnRef: input.txnRef,
+    vnp_Amount: String(input.amountVnd * 100),
+    vnp_OrderInfo: input.orderInfo,
+    vnp_TransactionNo: input.transactionNo ?? '',
+    vnp_TransactionDate: input.transactionDate,
+    vnp_CreateBy: input.createBy,
+    vnp_CreateDate: input.createDate,
+    vnp_IpAddr: input.ipAddr,
+    vnp_SecureHash: crypto
+      .createHmac('sha512', secret)
+      .update(Buffer.from(buildRefundSignData(input), 'utf-8'))
+      .digest('hex'),
+  };
+}
+
+const REFUND_RESPONSE_FIELDS = [
+  'vnp_ResponseId',
+  'vnp_Command',
+  'vnp_ResponseCode',
+  'vnp_Message',
+  'vnp_TmnCode',
+  'vnp_TxnRef',
+  'vnp_Amount',
+  'vnp_BankCode',
+  'vnp_PayDate',
+  'vnp_TransactionNo',
+  'vnp_TransactionType',
+  'vnp_TransactionStatus',
+  'vnp_OrderInfo',
+] as const;
+
+/** Kiểm tra chữ ký phản hồi của API hoàn tiền (các trường thiếu tính là chuỗi rỗng) */
+export function verifyRefundResponse(response: Record<string, unknown>, secret: string): boolean {
+  const received = response['vnp_SecureHash'];
+  if (typeof received !== 'string' || !/^[0-9a-fA-F]{128}$/.test(received)) return false;
+
+  const data = REFUND_RESPONSE_FIELDS.map((key) => {
+    const value = response[key];
+    return value === undefined || value === null ? '' : String(value);
+  }).join('|');
+  const expected = Buffer.from(
+    crypto.createHmac('sha512', secret).update(Buffer.from(data, 'utf-8')).digest('hex'),
+    'hex',
+  );
+  const actual = Buffer.from(received, 'hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
