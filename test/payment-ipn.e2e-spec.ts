@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { GoneException, NotFoundException } from '@nestjs/common';
 
+import { B2bDemandFulfillmentService } from '../src/modules/bookings/b2b-demand-fulfillment.service.js';
 import { CustomerPaymentsService } from '../src/modules/payments/customer-payments.service.js';
 import { CustomerBookingsService } from '../src/modules/bookings/customer-bookings.service.js';
 import {
@@ -53,6 +54,8 @@ describe.skipIf(!itEnabled)('Thanh toán VNPay trên MySQL thật', () => {
       providers: [
         CustomerPaymentsService,
         CustomerBookingsService,
+        // Chỉ được gọi cho đơn dropship; các test này dùng homestay đã có chủ nên không chạm tới
+        { provide: B2bDemandFulfillmentService, useValue: { fulfillDropshipBooking: vi.fn().mockResolvedValue(null) } },
         { provide: ConfigService, useValue: { get: (key: string, fallback?: string) => env[key] ?? fallback } },
       ],
     }).compile();
