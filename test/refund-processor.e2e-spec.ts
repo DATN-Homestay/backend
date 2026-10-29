@@ -137,7 +137,7 @@ describe.skipIf(!itEnabled)('Xử lý hoàn tiền qua VNPay trên MySQL thật'
     const user = seed.customers[userIdx];
     const policy = kind === 'full' ? CancellationPolicy.FLEXIBLE : CancellationPolicy.MODERATE;
     await dataSource.createQueryBuilder().update(Homestay).set({ cancellation_policy: policy }).execute();
-    const offset = kind === 'full' ? 10 + userIdx * 3 : 4 + userIdx * 0;
+    const offset = kind === 'full' ? 10 + userIdx * 3 : 4;
     const booking = await bookings.createBooking(user, {
       room_id: seed.roomId,
       check_in_date: addDays(todayVn(), offset),

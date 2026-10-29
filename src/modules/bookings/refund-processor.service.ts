@@ -21,6 +21,10 @@ const CODE_ALREADY_REQUESTED = '94';
 /** Lỗi chung phía VNPay: đáng thử lại */
 const CODE_UNEXPECTED = '99';
 
+/** Chỉ nhận chuỗi/số từ phản hồi bên ngoài, tránh in ra '[object Object]' */
+const asText = (value: unknown): string =>
+  typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+
 /** TypeORM không suy được kiểu của cột JSON trong update(); ép kiểu ở một chỗ duy nhất */
 const asJson = (value: Record<string, unknown> | null) => value as never;
 
@@ -217,8 +221,8 @@ export class RefundProcessorService {
       };
     }
 
-    const code = String(json.vnp_ResponseCode ?? '');
-    const message = String(json.vnp_Message ?? '');
+    const code = asText(json.vnp_ResponseCode);
+    const message = asText(json.vnp_Message);
 
     if (code === CODE_SUCCESS) {
       // Tiền đã rời tài khoản sàn nên chỉ tin phản hồi có chữ ký hợp lệ
@@ -229,13 +233,13 @@ export class RefundProcessorService {
           payload: json,
         };
       }
-      return { kind: 'success', payload: json, transactionNo: json.vnp_TransactionNo ? String(json.vnp_TransactionNo) : null };
+      return { kind: 'success', payload: json, transactionNo: asText(json.vnp_TransactionNo) || null };
     }
     if (code === CODE_ALREADY_REQUESTED) {
       return {
         kind: 'success',
         payload: json,
-        transactionNo: json.vnp_TransactionNo ? String(json.vnp_TransactionNo) : null,
+        transactionNo: asText(json.vnp_TransactionNo) || null,
         note: 'VNPay báo đã nhận yêu cầu hoàn tiền cho giao dịch này trước đó',
       };
     }

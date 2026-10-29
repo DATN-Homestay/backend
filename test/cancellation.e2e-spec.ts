@@ -43,6 +43,7 @@ describe.skipIf(!itEnabled)('Hủy đơn và hoàn tiền trên MySQL thật', (
   let processor: RefundProcessorService;
   let seed: SeededRoom;
   let host: AuthUser;
+  let background: ReturnType<typeof vi.spyOn>;
 
   const env: Record<string, string> = { VNP_TMN_CODE: TMN_CODE, VNP_HASH_SECRET: SECRET };
 
@@ -89,7 +90,8 @@ describe.skipIf(!itEnabled)('Hủy đơn và hoàn tiền trên MySQL thật', (
     await calRepo.save(rows);
 
     // Tránh việc xử lý nền can thiệp vào trạng thái cần kiểm tra; từng test tự bật khi cần
-    vi.spyOn(processor, 'processInBackground').mockImplementation(() => {}).mockClear();
+    background = vi.spyOn(processor, 'processInBackground').mockImplementation(() => {});
+    background.mockClear();
   });
 
   // ---------- helpers ----------
@@ -184,7 +186,7 @@ describe.skipIf(!itEnabled)('Hủy đơn và hoàn tiền trên MySQL thật', (
     expect((await reload(booking.id)).status).toBe(BookingStatus.CANCELLED);
     expect((await escrowOf(booking.id)).status).toBe(EscrowStatus.REFUNDED);
     expect((await nightsOf(10)).every((r) => r.is_available === 1)).toBe(true);
-    expect(processor.processInBackground).toHaveBeenCalledWith(refund.id);
+    expect(background).toHaveBeenCalledWith(refund.id);
   });
 
   it('STRICT, hủy trong vòng 7 ngày: hoàn 0, KHÔNG tạo yêu cầu hoàn, Escrow giữ nguyên cho Host', async () => {
@@ -199,7 +201,7 @@ describe.skipIf(!itEnabled)('Hủy đơn và hoàn tiền trên MySQL thật', (
     const escrow = await escrowOf(booking.id);
     expect(escrow.status).toBe(EscrowStatus.HOLDING);
     expect(Number(escrow.amount)).toBe(2_000_000);
-    expect(processor.processInBackground).not.toHaveBeenCalled();
+    expect(background).not.toHaveBeenCalled();
   });
 
   it('MODERATE, hủy trong vòng 5 ngày: hoàn 50%, Escrow chỉ còn phần sàn giữ lại', async () => {

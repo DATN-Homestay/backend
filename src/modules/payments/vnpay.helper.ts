@@ -171,7 +171,7 @@ export function verifyRefundResponse(response: Record<string, unknown>, secret: 
 
   const data = REFUND_RESPONSE_FIELDS.map((key) => {
     const value = response[key];
-    return value === undefined || value === null ? '' : String(value);
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   }).join('|');
   const expected = Buffer.from(
     crypto.createHmac('sha512', secret).update(Buffer.from(data, 'utf-8')).digest('hex'),
