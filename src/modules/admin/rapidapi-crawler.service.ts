@@ -4,6 +4,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import puppeteer from 'puppeteer-core';
+import path from 'path';
+import fs from 'fs';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -1357,11 +1359,17 @@ export class RapidApiCrawlerService {
 
     let browser: any = null;
     let savedCount = 0;
+    const profileDir = path.resolve(process.cwd(), '.chrome-profile-' + Date.now());
 
     try {
+      if (!fs.existsSync(profileDir)) {
+        fs.mkdirSync(profileDir, { recursive: true });
+      }
+
       browser = await puppeteer.launch({
         executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         headless: true,
+        userDataDir: profileDir,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -1641,6 +1649,11 @@ export class RapidApiCrawlerService {
       if (browser) {
         await browser.close().catch(() => null);
       }
+      try {
+        if (profileDir && fs.existsSync(profileDir)) {
+          fs.rmSync(profileDir, { recursive: true, force: true });
+        }
+      } catch (e) {}
     }
 
     return savedCount;
