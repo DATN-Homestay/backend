@@ -198,10 +198,24 @@ export class PaymentsService {
   // ==========================================
 
   async getPayoutHistory(hostId: string) {
-    return await this.payoutRepo.find({
+    const payouts = await this.payoutRepo.find({
       where: { host_id: hostId },
       relations: ['booking', 'booking.room', 'booking.room.homestay'],
       order: { created_at: 'DESC' },
     });
+
+    return payouts.map((p) => ({
+      id: p.id,
+      payout_code: `PO-${new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '')}-${String(p.id).padStart(4, '0')}`,
+      booking_code: p.booking?.booking_code || 'N/A',
+      homestay_name: p.booking?.room?.homestay?.name || 'N/A',
+      room_name: p.booking?.room?.room_name || 'N/A',
+      gross_amount: Number(p.total_booking_amount) || 0,
+      commission: Number(p.platform_commission) || 0,
+      net_amount: Number(p.actual_payout_amount) || 0,
+      status: p.status,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }));
   }
 }

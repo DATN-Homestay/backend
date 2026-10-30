@@ -91,7 +91,7 @@ export const databaseConfigAsync: TypeOrmModuleAsyncOptions = {
       ],
       synchronize: configService.get<string>('DB_SYNCHRONIZE', 'true') === 'true',
       autoLoadEntities: true,
-      logging: configService.get<string>('NODE_ENV') !== 'production',
+      logging: false,
       ssl: sslOptions,
       extra: {
         connectionLimit: 10,

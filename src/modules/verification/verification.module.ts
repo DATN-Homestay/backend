@@ -7,8 +7,10 @@ import {
 } from './entities/index.js';
 import { Homestay } from '../homestays/entities/homestay.entity.js';
 import { User } from '../users/entities/user.entity.js';
+import { UploadModule } from '../upload/upload.module.js';
 import { VerificationService } from './verification.service.js';
-import { VerificationController } from './verification.controller.js';
+import { VerificationController, VerificationFilesController } from './verification.controller.js';
+import { CccdOcrService } from './cccd-ocr.service.js';
 
 @Module({
   imports: [
@@ -19,9 +21,10 @@ import { VerificationController } from './verification.controller.js';
       Homestay,
       User,
     ]),
+    UploadModule,
   ],
-  controllers: [VerificationController],
-  providers: [VerificationService],
-  exports: [VerificationService, TypeOrmModule],
+  controllers: [VerificationController, VerificationFilesController],
+  providers: [VerificationService, CccdOcrService],
+  exports: [VerificationService, CccdOcrService, TypeOrmModule],
 })
 export class VerificationModule {}

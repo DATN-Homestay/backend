@@ -21,6 +21,7 @@ import { ChatModule } from './modules/chat/chat.module.js';
 import { CouponsModule } from './modules/coupons/coupons.module.js';
 import { SecurityModule } from './modules/security/security.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
+import { UploadModule } from './modules/upload/upload.module.js';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { AdminModule } from './modules/admin/admin.module.js';
     CouponsModule,
     SecurityModule,
     AdminModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

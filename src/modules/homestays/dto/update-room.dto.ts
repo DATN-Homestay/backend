@@ -14,4 +14,7 @@ export class UpdateRoomDto {
   @IsNumber()
   @Min(50000)
   base_price?: number;
+
+  @IsOptional()
+  images?: string[];
 }

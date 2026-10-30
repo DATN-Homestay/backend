@@ -11,6 +11,9 @@ import { Homestay } from '../homestays/entities/homestay.entity.js';
 import { Room } from '../homestays/entities/room.entity.js';
 import { RoomImage } from '../homestays/entities/room-image.entity.js';
 import { PriceCalendar } from '../homestays/entities/price-calendar.entity.js';
+import { Booking } from '../bookings/entities/booking.entity.js';
+import { User } from '../users/entities/user.entity.js';
+import { Role } from '../users/entities/role.entity.js';
 import { BookingsModule } from '../bookings/bookings.module.js';
 
 @Module({
@@ -23,6 +26,9 @@ import { BookingsModule } from '../bookings/bookings.module.js';
       Room,
       RoomImage,
       PriceCalendar,
+      Booking,
+      User,
+      Role,
     ]),
     BookingsModule,
   ],
@@ -30,4 +36,4 @@ import { BookingsModule } from '../bookings/bookings.module.js';
   providers: [AdminService, RapidApiCrawlerService],
   exports: [AdminService, RapidApiCrawlerService],
 })
-export class AdminModule {}
+export class AdminModule { }

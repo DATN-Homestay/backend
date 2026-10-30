@@ -28,10 +28,10 @@ export class HostVerificationDocument {
   @Column({ type: 'text', comment: 'Mã hóa AES-256-CBC số CCCD' })
   cccd_number_encrypted: string;
 
-  @Column({ type: 'varchar', length: 500, comment: 'Cloudinary private signed URL' })
+  @Column({ type: 'mediumtext', nullable: true, comment: 'Cloudinary private signed URL hoặc Base64' })
   cccd_front_image: string;
 
-  @Column({ type: 'varchar', length: 500, comment: 'Cloudinary private signed URL' })
+  @Column({ type: 'mediumtext', nullable: true, comment: 'Cloudinary private signed URL hoặc Base64' })
   cccd_back_image: string;
 
   @Column({ type: 'text', comment: 'Mã hóa AES-256-CBC STK Ngân hàng' })
